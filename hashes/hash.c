@@ -1,14 +1,35 @@
 #include <stdio.h>
-
+#include <stdint.h>
+/*
 void hash3(long long *hashVar, char* value, int size) {
   for (int i = 0; i < size; i++)
       printf("%d\n", value[i]);
 }
-void hash2(long *hashVar, long value) {
-  printf("in: %ld\n", value);
-  *hashVar += value;
-  printf("var: %ld\n", *hashVar);
+*/
+
+// PJW Hash
+void hash2(uint64_t *hashVar, uint64_t value) {
+  //*hashVar += value;
+  uint8_t *key = (uint8_t *)&value;
+  uint64_t high = 0;
+  for (int i = 0; i < sizeof(value); i++) {
+    *hashVar = (*hashVar << 4) + key[i];
+    if ((high = *hashVar & 0xF000000000000000))
+      *hashVar ^= high >> 56;
+    *hashVar &= ~high;
+  }
+  printf("H2: %lu\n", *hashVar);
 }
-void hash1() {
-  printf("FUNCTION\n");
+
+//CRC Variant
+void hash1(uint64_t *hashVar, uint64_t value) {
+  uint8_t *key= (uint8_t *)&value;
+  uint64_t highorder = 0;
+  for (int i = 0; i < sizeof(value); i++) {
+    highorder = *hashVar & 0xF800000000000000;
+    *hashVar = *hashVar << 5;
+    *hashVar ^= highorder >> 59;
+    *hashVar ^= key[i];
+  }
+  printf("H1: %lu\n", *hashVar);
 }

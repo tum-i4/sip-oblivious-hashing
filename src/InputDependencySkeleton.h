@@ -30,7 +30,7 @@ private:
 private:
     llvm::Constant *hashFunc1;
     llvm::Constant *hashFunc2;
-    llvm::GlobalVariable *hashPtr;
+    std::vector<llvm::GlobalVariable *> hashPtrs;
 };
 
 }
