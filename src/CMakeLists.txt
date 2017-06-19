@@ -1,5 +1,5 @@
 add_library(skeleton MODULE
-    InputDependencySkeleton.cpp
+    ObliviousHashInsertion.cpp
 )
 
 # Use C++11 to compile our pass (i.e., supply -std=c++11).
