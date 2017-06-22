@@ -106,35 +106,30 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction& I)
     if (llvm::ReturnInst::classof(&I)) {
 	auto *ret = llvm::dyn_cast<llvm::ReturnInst>(&I);
 	auto *val = ret->getReturnValue();
-	//llvm::dbgs() << "Ret: ";
 	if (val) {
-	    //val->getType()->print(llvm::dbgs());
             insertHash(I, val, true);
         }
-	//llvm::dbgs() << "\n";
     }
     if (llvm::LoadInst::classof(&I)) {
 	auto *load = llvm::dyn_cast<llvm::LoadInst>(&I);
-        //llvm::dbgs() << I << "\n";
-	//llvm::dbgs() << "load: ";
-	//load->getPointerOperand()->getType()->print(llvm::dbgs());
-	//llvm::dbgs() << "\n";
         insertHash(I, load, false);
     }
     if (llvm::StoreInst::classof(&I)) {
 	auto *store = llvm::dyn_cast<llvm::StoreInst>(&I);
-        //llvm::dbgs() << I << "\n";
-	//llvm::dbgs() << "store: ";
-	//store->getValueOperand()->getType()->print(llvm::dbgs());
-	//llvm::dbgs() << "\n";
         insertHash(I, store->getValueOperand(), true);
     }
-    if (llvm::AtomicRMWInst::classof(&I)) {
+    if (llvm::BinaryOperator::classof(&I)) {
+        auto *bin = llvm::dyn_cast<llvm::BinaryOperator>(&I);
+        if (bin->getOpcode() == llvm::Instruction::Add) {
+            insertHash(I, bin, false);
+        }
+    }
+    /*if (llvm::AtomicRMWInst::classof(&I)) {
 	auto *armw = llvm::dyn_cast<llvm::AtomicRMWInst>(&I);
 	llvm::dbgs() << "rmw: ";
 	armw->getValOperand()->getType()->print(llvm::dbgs());
 	llvm::dbgs() << "\n";
-    }
+    }*/
 }
 
 void ObliviousHashInsertionPass::insertLogger(llvm::Instruction& I)
