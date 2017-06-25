@@ -1,5 +1,6 @@
 #include "ObliviousHashInsertion.h"
-
+#include "NonDeterministicBasicBlocksAnalysis.h"
+#include "FunctionCallsPass.h"
 #include "Utils.h"
 
 #include "input-dependency/InputDependencyAnalysis.h"
@@ -43,9 +44,10 @@ void ObliviousHashInsertionPass::getAnalysisUsage(llvm::AnalysisUsage& AU) const
 {
     AU.setPreservesAll();
     AU.addRequired<input_dependency::InputDependencyAnalysis>();
+    AU.addRequired<NonDeterministicBasicBlocksAnalysis>();
+    AU.addRequired<FunctionCallsPass>();
     AU.addRequired<llvm::LoopInfoWrapperPass>();
 }
-
 
 bool ObliviousHashInsertionPass::insertHash(llvm::Instruction& I, llvm::Value *v, bool before)
 {
@@ -227,11 +229,14 @@ void ObliviousHashInsertionPass::setup_hash_values(llvm::Module& M)
 bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
 {
     llvm::dbgs() << "Insert hash computation\n";
+    bool modified = false;
     unique_id_generator::get().reset();
     srand(time(NULL));
 
     hashPtrs.reserve(num_hash);
     const auto& input_dependency_info = getAnalysis<input_dependency::InputDependencyAnalysis>();
+    const auto& non_det_blocks = getAnalysis<NonDeterministicBasicBlocksAnalysis>();
+    const auto& function_calls = getAnalysis<FunctionCallsPass>();
     
     // Get the function to call from our runtime library.
     setup_functions(M);
@@ -240,13 +245,15 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
 
     llvm::Instruction* last_instr;
     for (auto& F : M) {
+        bool add_loger_in_function = !function_calls.is_function_called_in_a_loop(&F);
         // No input dependency info for declarations and instrinsics.
         if (F.isDeclaration() || F.isIntrinsic()) {
             continue;
         }
         llvm::LoopInfo& LI = getAnalysis<llvm::LoopInfoWrapperPass>(F).getLoopInfo();
         llvm::dbgs() << F.getName() << "\n";
-        for (auto& B : F) {
+        for (auto& B : F) { 
+            bool add_loget_in_block = !non_det_blocks.is_block_nondeterministic(&B);
             for (auto& I : B) {
                 if (input_dependency_info.isInputDependent(&I)) {
                     llvm::dbgs() << "D: " << I << "\n";
@@ -254,16 +261,18 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
                     last_instr = &I;
                     llvm::dbgs() << "I: " << I << "\n";
                     instrumentInst(I);
+                    modified = true;
                 }
                 // no logging inside a loop
-                if (LI.getLoopFor(&B) == nullptr) {
+                if (LI.getLoopFor(&B) == nullptr && add_loger_in_function && add_loget_in_block) {
                     insertLogger(I);
+                    modified = true;
                 }
             }
         }
     }
     end_logging(*last_instr);
-    return false;
+    return modified;
 }
 
 static llvm::RegisterPass<ObliviousHashInsertionPass> X("oh-insert","Instruments bitcode with hashing and logging functions");

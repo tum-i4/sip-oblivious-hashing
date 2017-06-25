@@ -30,6 +30,7 @@ bool AssertionInsertionPass::runOnModule(llvm::Module& M)
 {
     llvm::dbgs() << "Insert assertions\n";
 
+    bool modified = false;
     parse_hashes();
     unique_id_generator::get().reset();
     setup_assert_function(M);
@@ -42,6 +43,7 @@ bool AssertionInsertionPass::runOnModule(llvm::Module& M)
                     if (calledF && calledF->getName() == "log") {
                         process_log_call(callInst);
                         log_calls.push_back(callInst);
+                        modified = true;
                     }
                 }
             }
@@ -51,8 +53,9 @@ bool AssertionInsertionPass::runOnModule(llvm::Module& M)
         auto log_call = log_calls.back();
         log_calls.pop_back();
         log_call->eraseFromParent();
+        modified = true;
     }
-    return false;
+    return modified;
 }
 
 void AssertionInsertionPass::parse_hashes()
