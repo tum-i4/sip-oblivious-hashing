@@ -23,7 +23,7 @@
 #include <cstdlib>
 #include <ctime>
 
-namespace skeleton {
+namespace oh {
 
 namespace {
 
@@ -180,7 +180,9 @@ void ObliviousHashInsertionPass::insertLogger(llvm::IRBuilder<> &builder, llvm::
     llvm::LLVMContext& Ctx = builder.getContext();
 
     std::vector<llvm::Value*> arg_values;
-    llvm::Value* id_value = llvm::ConstantInt::get(llvm::Type::getInt32Ty(Ctx), unique_id_generator::get().next());
+    unsigned id = unique_id_generator::get().next();
+    //llvm::dbgs() << "ID  " << id << " for instruction " << instr << "\n";
+    llvm::Value* id_value = llvm::ConstantInt::get(llvm::Type::getInt32Ty(Ctx), id);
     arg_values.push_back(id_value);
     arg_values.push_back(hashPtrs.at(hashToLogIdx));
     llvm::ArrayRef<llvm::Value*> args(arg_values);
@@ -229,6 +231,8 @@ void ObliviousHashInsertionPass::setup_hash_values(llvm::Module& M)
 
 bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
 {
+    llvm::dbgs() << "Insert hash computation\n";
+    unique_id_generator::get().reset();
     srand(time(NULL));
 
     hashPtrs.reserve(num_hash);

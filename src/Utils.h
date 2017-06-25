@@ -14,6 +14,11 @@ public:
         return id++;
     }
 
+    unsigned current()
+    {
+        return id;
+    }
+
     void reset()
     {
         id = 0;

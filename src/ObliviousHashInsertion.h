@@ -6,7 +6,7 @@
 #include "llvm/IR/IRBuilder.h"
 
 
-namespace skeleton {
+namespace oh {
 
 class ObliviousHashInsertionPass : public llvm::ModulePass
 {

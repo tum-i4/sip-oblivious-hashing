@@ -1,5 +1,6 @@
 add_library(skeleton MODULE
     ObliviousHashInsertion.cpp
+    AssertionInsertionPass.cpp
 )
 
 # Use C++11 to compile our pass (i.e., supply -std=c++11).
