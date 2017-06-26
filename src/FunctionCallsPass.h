@@ -26,9 +26,11 @@ public:
 
 public:
     bool is_function_called_in_a_loop(llvm::Function* F) const;
+    bool is_function_called_in_non_det_block(llvm::Function* F) const;
 
 private:
     std::unordered_set<llvm::Function*> functions_called_in_loop;
+    std::unordered_set<llvm::Function*> functions_called_in_non_det_blocks;
 };
 
 }

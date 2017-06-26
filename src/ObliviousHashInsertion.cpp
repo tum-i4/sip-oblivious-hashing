@@ -245,6 +245,11 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
 
     llvm::Instruction* last_instr;
     for (auto& F : M) {
+        // no hashes for functions called from non deterministc blocks
+        if (function_calls.is_function_called_in_non_det_block(&F)) {
+            continue;
+        }
+        bool add_loger_in_function = !function_calls.is_function_called_in_a_loop(&F);
         // No input dependency info for declarations and instrinsics.
         if (F.isDeclaration() || F.isIntrinsic()) {
             continue;

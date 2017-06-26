@@ -1,5 +1,7 @@
 #include "FunctionCallsPass.h"
 
+#include "NonDeterministicBasicBlocksAnalysis.h"
+
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Function.h"
@@ -16,6 +18,7 @@ void FunctionCallsPass::getAnalysisUsage(llvm::AnalysisUsage& AU) const
 {
     AU.setPreservesAll();
     AU.addRequired<llvm::LoopInfoWrapperPass>();
+    AU.addRequired<NonDeterministicBasicBlocksAnalysis>();
 }
 
 bool FunctionCallsPass::runOnModule(llvm::Module& M)
@@ -26,21 +29,30 @@ bool FunctionCallsPass::runOnModule(llvm::Module& M)
         }
 
         llvm::LoopInfo& LI = getAnalysis<llvm::LoopInfoWrapperPass>(F).getLoopInfo();
+        const auto& NonDetInfo = getAnalysis<NonDeterministicBasicBlocksAnalysis>();
         for (auto& B : F) {
             for (auto& I : B) {
                 bool is_in_loop = (LI.getLoopFor(&B) != nullptr);
-                if (!is_in_loop) {
-                    continue;
-                }
+                bool is_in_non_det_block = NonDetInfo.is_block_nondeterministic(&B);
                 if (auto* callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
                     auto calledF = callInst->getCalledFunction();
                     if (calledF) {
-                        functions_called_in_loop.insert(calledF);
+                        if (is_in_loop) {
+                            functions_called_in_loop.insert(calledF);
+                        }
+                        if (is_in_non_det_block) {
+                            functions_called_in_non_det_blocks.insert(calledF);
+                        }
                     }
                 } else if (auto* invokeInst = llvm::dyn_cast<llvm::InvokeInst>(&I)) {
                     auto invokedF = callInst->getCalledFunction();
                     if (invokedF) {
-                        functions_called_in_loop.insert(invokedF);
+                        if (is_in_loop) {
+                            functions_called_in_loop.insert(invokedF);
+                        }
+                        if (is_in_non_det_block) {
+                            functions_called_in_non_det_blocks.insert(invokedF);
+                        }
                     }
 
                 }
@@ -53,6 +65,11 @@ bool FunctionCallsPass::runOnModule(llvm::Module& M)
 bool FunctionCallsPass::is_function_called_in_a_loop(llvm::Function* F) const
 {
     return functions_called_in_loop.find(F) != functions_called_in_loop.end();
+}
+
+bool FunctionCallsPass::is_function_called_in_non_det_block(llvm::Function* F) const
+{
+    return functions_called_in_non_det_blocks.find(F) != functions_called_in_non_det_blocks.end();
 }
 
 static llvm::RegisterPass<FunctionCallsPass> X("function-call-info","Collects information about function calls");
