@@ -18,7 +18,7 @@ void hash2(uint64_t *hashVar, uint64_t value) {
       *hashVar ^= high >> 56;
     *hashVar &= ~high;
   }
-  printf("H2: %lu\n", *hashVar);
+  //printf("H2: %lu\n", *hashVar);
 }
 
 //CRC Variant
@@ -31,5 +31,5 @@ void hash1(uint64_t *hashVar, uint64_t value) {
     *hashVar ^= highorder >> 59;
     *hashVar ^= key[i];
   }
-  printf("H1: %lu\n", *hashVar);
+  //printf("H1: %lu\n", *hashVar);
 }
