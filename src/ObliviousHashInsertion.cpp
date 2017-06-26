@@ -147,7 +147,7 @@ void ObliviousHashInsertionPass::insertLogger(llvm::Instruction& I)
     // logger for cmp instruction should have been added
     if (llvm::CmpInst::classof(&I)) {
         // log the last value which contains hash for this cmp instruction
-        builder.SetInsertPoint(I.getParent(), ++builder.GetInsertPoint());
+        //builder.SetInsertPoint(I.getParent(), ++builder.GetInsertPoint());
         insertLogger(builder, I, usedHashIndices.back());
         return;
     }

@@ -80,7 +80,7 @@ void AssertionInsertionPass::setup_assert_function(llvm::Module& M)
 {
     llvm::LLVMContext& Ctx = M.getContext();
     // first argument is current hash value, second is number of available hashes, then variadic number of arguments for precomputed hashes
-    llvm::ArrayRef<llvm::Type*> assert_params{llvm::Type::getInt64PtrTy(Ctx), llvm::Type::getInt64Ty(Ctx)};
+    llvm::ArrayRef<llvm::Type*> assert_params{llvm::Type::getInt64PtrTy(Ctx), llvm::Type::getInt32Ty(Ctx)};
     llvm::FunctionType* assert_type = llvm::FunctionType::get(llvm::Type::getVoidTy(Ctx), assert_params, true);
     assert = M.getOrInsertFunction("assert", assert_type);
 }
@@ -98,7 +98,7 @@ void AssertionInsertionPass::process_log_call(llvm::CallInst* log_call)
     std::vector<llvm::Value*> arg_values;
     llvm::Value* hash_val = log_call->getArgOperand(1);
     arg_values.push_back(hash_val);
-    arg_values.push_back(llvm::ConstantInt::get(llvm::Type::getInt64Ty(Ctx), precomputed_hashes.size()));
+    arg_values.push_back(llvm::ConstantInt::get(llvm::Type::getInt32Ty(Ctx), precomputed_hashes.size()));
     for (const auto& hash_value : precomputed_hashes) {
         llvm::dbgs() << hash_value << " ";
         arg_values.push_back(llvm::ConstantInt::get(llvm::Type::getInt64Ty(Ctx), hash_value));
