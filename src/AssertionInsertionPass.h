@@ -3,6 +3,8 @@
 #include "llvm/Pass.h"
 #include "llvm/IR/IRBuilder.h"
 
+#include <unordered_set>
+
 namespace llvm {
 class CallInst;
 class Constant;
@@ -30,7 +32,8 @@ private:
     void process_log_call(llvm::CallInst* log_call);
 
 private:
-    std::vector<uint64_t> hashes;
+    using hash_value_set = std::unordered_set<uint64_t>;
+    std::vector<hash_value_set> hashes;
     llvm::Constant* assert;
 };
 

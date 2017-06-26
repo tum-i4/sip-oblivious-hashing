@@ -245,7 +245,6 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
 
     llvm::Instruction* last_instr;
     for (auto& F : M) {
-        bool add_loger_in_function = !function_calls.is_function_called_in_a_loop(&F);
         // No input dependency info for declarations and instrinsics.
         if (F.isDeclaration() || F.isIntrinsic()) {
             continue;
@@ -264,7 +263,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
                     modified = true;
                 }
                 // no logging inside a loop
-                if (LI.getLoopFor(&B) == nullptr && add_loger_in_function && add_loger_in_block) {
+                if (LI.getLoopFor(&B) == nullptr && add_loger_in_block) {
                     insertLogger(I);
                     modified = true;
                 }

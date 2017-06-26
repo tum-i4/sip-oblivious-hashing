@@ -37,7 +37,7 @@ void log(unsigned id, uint64_t* hashVar)
     _logger.log(id, *hashVar);
 }
 
-void assert(uint64_t* hashVar, uint64_t hash)
+void assert_(uint64_t* hashVar, uint64_t hash)
 {
     if (hashVar == nullptr) {
         return;
@@ -48,6 +48,31 @@ void assert(uint64_t* hashVar, uint64_t hash)
     } else {
         std::cout << "Pass\n";
     }
+}
+
+void assert(uint64_t* hashVar, int values_count, ...)
+{
+    if (hashVar == nullptr) {
+        return;
+    }
+    bool is_valid = false;
+    uint64_t hash = 0;
+    va_list args_list;
+    va_start(args_list, values_count);
+    for (unsigned i = 0; i < values_count; ++i) {
+        hash = va_arg(args_list, uint64_t);
+        if (*hashVar == hash) {
+            is_valid = true;
+            break;
+        }
+    }
+    if (!is_valid) {
+        std::cout << "Fail: " << *hashVar << " != " << hash << "\n";
+        abort();
+    } else {
+        std::cout << "Pass\n";
+    }
+
 }
 
 }

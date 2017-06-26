@@ -71,7 +71,7 @@ void AssertionInsertionPass::parse_hashes()
         unsigned id = std::stoi(id_str);
         uint64_t hash = std::stoull(hash_str);
         //llvm::dbgs() << id << " " << hash << "\n";
-        hashes[id] = hash;
+        hashes[id].insert(hash);
     }
     hash_strm.close();
 }
@@ -79,16 +79,17 @@ void AssertionInsertionPass::parse_hashes()
 void AssertionInsertionPass::setup_assert_function(llvm::Module& M)
 {
     llvm::LLVMContext& Ctx = M.getContext();
+    // first argument is current hash value, second is number of available hashes, then variadic number of arguments for precomputed hashes
     llvm::ArrayRef<llvm::Type*> assert_params{llvm::Type::getInt64PtrTy(Ctx), llvm::Type::getInt64Ty(Ctx)};
-    llvm::FunctionType* assert_type = llvm::FunctionType::get(llvm::Type::getVoidTy(Ctx), assert_params, false);
+    llvm::FunctionType* assert_type = llvm::FunctionType::get(llvm::Type::getVoidTy(Ctx), assert_params, true);
     assert = M.getOrInsertFunction("assert", assert_type);
 }
 
 void AssertionInsertionPass::process_log_call(llvm::CallInst* log_call)
 {
     const unsigned log_id = unique_id_generator::get().next();
-    const uint64_t precomputed_hash = hashes[log_id];
-    llvm::dbgs() << "log_id " << log_id << " hash value " << precomputed_hash << "\n"; 
+    const auto& precomputed_hashes = hashes[log_id];
+    llvm::dbgs() << "log_id " << log_id << " hash values: ";
 
     llvm::LLVMContext &Ctx = log_call->getModule()->getContext();
     llvm::IRBuilder<> builder(log_call);
@@ -97,8 +98,12 @@ void AssertionInsertionPass::process_log_call(llvm::CallInst* log_call)
     std::vector<llvm::Value*> arg_values;
     llvm::Value* hash_val = log_call->getArgOperand(1);
     arg_values.push_back(hash_val);
-    llvm::Value* precomputed_hash_val = llvm::ConstantInt::get(llvm::Type::getInt64Ty(Ctx), precomputed_hash);
-    arg_values.push_back(precomputed_hash_val);
+    arg_values.push_back(llvm::ConstantInt::get(llvm::Type::getInt64Ty(Ctx), precomputed_hashes.size()));
+    for (const auto& hash_value : precomputed_hashes) {
+        llvm::dbgs() << hash_value << " ";
+        arg_values.push_back(llvm::ConstantInt::get(llvm::Type::getInt64Ty(Ctx), hash_value));
+    }
+    llvm::dbgs() << "\n";
     builder.CreateCall(assert, arg_values);
 }
 
