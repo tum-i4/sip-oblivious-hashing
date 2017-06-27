@@ -43,13 +43,16 @@ bool NonDeterministicBasicBlocksAnalysis::runOnModule(llvm::Module& M)
                 auto pred_node = postDomTree[pb];
                 postdominates_all_predecessors &= postDomTree.dominates(b_node, pred_node);
                 if (termInstr != nullptr) {
-                    is_non_det = input_dependency_info.isInputDependent(termInstr);
+                    is_non_det |= input_dependency_info.isInputDependent(termInstr);
                 }
                 ++pred;
             }
             if (LI.getLoopFor(&B) != nullptr) {
+                llvm::dbgs() << "block: " << B.getName() << "\n";
                 if (is_non_det) {
                     non_deterministic_blocks.insert(&B);
+                } else {
+                    llvm::dbgs() << "is det\n";
                 }
             } else if (!postdominates_all_predecessors && is_non_det) {
                 non_deterministic_blocks.insert(&B);

@@ -277,7 +277,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
                     modified = true;
                 }
                 // no logging inside a loop
-                if (LI.getLoopFor(&B) == nullptr && add_loger_in_block) {
+                if (add_loger_in_block) {
                     insertLogger(I);
                     modified = true;
                 }
