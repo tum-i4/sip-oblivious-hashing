@@ -12,7 +12,7 @@ public:
 
     void log(unsigned id, uint64_t hash)
     {
-        printf("logging: id %u hash %lu\n", id, hash);
+        //printf("logging: id %u hash %lu\n", id, hash);
         log_stream << id << " " << hash << "\n";
     }
 
@@ -53,6 +53,7 @@ void assert_(uint64_t* hashVar, uint64_t hash)
 void assert(uint64_t* hashVar, int values_count, ...)
 {
     if (hashVar == nullptr) {
+        std::cout << "Pass\n";
         return;
     }
     bool is_valid = false;
@@ -69,8 +70,6 @@ void assert(uint64_t* hashVar, int values_count, ...)
     if (!is_valid) {
         std::cout << "Fail: " << *hashVar << " != " << hash << "\n";
         abort();
-    } else {
-        std::cout << "Pass\n";
     }
 
 }
