@@ -9,7 +9,6 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/InstrTypes.h"
-#include "llvm/Analysis/LoopInfo.h"
 
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Support/raw_ostream.h"
@@ -60,7 +59,7 @@ bool AssertionInsertionPass::runOnModule(llvm::Module& M)
 
 void AssertionInsertionPass::parse_hashes()
 {
-    hashes.resize(1000);
+    hashes.resize(100000);
     std::ifstream hash_strm;
     hash_strm.open("hashes.log");
     std::string id_str;

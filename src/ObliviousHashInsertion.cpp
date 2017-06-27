@@ -118,7 +118,7 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction& I)
     }
     if (llvm::StoreInst::classof(&I)) {
 	auto *store = llvm::dyn_cast<llvm::StoreInst>(&I);
-        insertHash(I, store->getValueOperand(), true);
+        insertHash(I, store->getValueOperand(), false);
     }
     if (llvm::BinaryOperator::classof(&I)) {
         auto *bin = llvm::dyn_cast<llvm::BinaryOperator>(&I);
@@ -259,11 +259,20 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
         for (auto& B : F) { 
             bool add_loger_in_block = !non_det_blocks.is_block_nondeterministic(&B);
             for (auto& I : B) {
+                if (llvm::dyn_cast<llvm::PHINode>(&I)) {
+                    continue;
+                }
+                if (auto callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
+                    auto calledF = callInst->getCalledFunction();
+                    if (calledF && calledF->getName() == "log") {
+                        continue;
+                    }
+                }
                 if (input_dependency_info.isInputDependent(&I)) {
-                    llvm::dbgs() << "D: " << I << "\n";
+                    //llvm::dbgs() << "D: " << I << "\n";
                 } else {
                     last_instr = &I;
-                    llvm::dbgs() << "I: " << I << "\n";
+                    //llvm::dbgs() << "I: " << I << "\n";
                     instrumentInst(I);
                     modified = true;
                 }
