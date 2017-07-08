@@ -39,7 +39,7 @@ bool AssertionInsertionPass::runOnModule(llvm::Module& M)
             for (auto& I : B) {
                 if (auto* callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
                     auto calledF = callInst->getCalledFunction();
-                    if (calledF && calledF->getName() == "log") {
+                    if (calledF && calledF->getName() == "oh_log") {
                         process_log_call(callInst);
                         log_calls.push_back(callInst);
                         modified = true;

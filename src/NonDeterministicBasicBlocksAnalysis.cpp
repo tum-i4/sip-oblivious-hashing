@@ -50,10 +50,8 @@ bool NonDeterministicBasicBlocksAnalysis::runOnModule(llvm::Module& M)
             auto loop = LI.getLoopFor(&B);
             if (is_non_det) {
                 if (!postdominates_all_predecessors) {
-                    llvm::dbgs() << "non det block " << B.getName() << "\n";
                     non_deterministic_blocks.insert(&B);
                 } else if (loop != nullptr) {
-                    llvm::dbgs() << "non det block " << B.getName() << "\n";
                     // header always dominates predecessors, doesn't mean it is deterministic
                     non_deterministic_blocks.insert(&B);
                 }

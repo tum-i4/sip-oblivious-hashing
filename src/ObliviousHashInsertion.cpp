@@ -258,10 +258,12 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
         }
         for (auto& B : F) {
             if (non_det_blocks.is_block_nondeterministic(&B)) {
-                llvm::dbgs() << "input dep block " << B.getName() << "\n";
                 continue;
             }
             for (auto& I : B) {
+                if (auto phi = llvm::dyn_cast<llvm::PHINode>(&I)) {
+                    continue;
+                }
                 if (auto callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
                     auto calledF = callInst->getCalledFunction();
                     if (calledF && calledF->getName() == "oh_log") {
