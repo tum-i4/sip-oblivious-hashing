@@ -2,7 +2,6 @@ add_library(oblivious-hashing MODULE
     ObliviousHashInsertion.cpp
     AssertionInsertionPass.cpp
     NonDeterministicBasicBlocksAnalysis.cpp
-    FunctionCallsPass.cpp
 )
 
 # Use C++11 to compile our pass (i.e., supply -std=c++11).

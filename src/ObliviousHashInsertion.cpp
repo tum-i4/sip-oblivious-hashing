@@ -1,9 +1,9 @@
 #include "ObliviousHashInsertion.h"
-#include "NonDeterministicBasicBlocksAnalysis.h"
-#include "FunctionCallsPass.h"
 #include "Utils.h"
+#include "NonDeterministicBasicBlocksAnalysis.h"
 
 #include "input-dependency/InputDependencyAnalysis.h"
+#include "input-dependency/InputDependentFunctions.h"
 
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Function.h"
@@ -44,13 +44,16 @@ void ObliviousHashInsertionPass::getAnalysisUsage(llvm::AnalysisUsage& AU) const
 {
     AU.setPreservesAll();
     AU.addRequired<input_dependency::InputDependencyAnalysis>();
+    AU.addRequired<input_dependency::InputDependentFunctionsPass>();
     AU.addRequired<NonDeterministicBasicBlocksAnalysis>();
-    AU.addRequired<FunctionCallsPass>();
     AU.addRequired<llvm::LoopInfoWrapperPass>();
 }
 
-bool ObliviousHashInsertionPass::insertHash(llvm::Instruction& I, llvm::Value *v, bool before)
+void ObliviousHashInsertionPass::insertHash(llvm::Instruction& I, llvm::Value *v, bool before)
 {
+    if (v->getType()->isPointerTy()) {
+        return;
+    }
     llvm::LLVMContext &Ctx = I.getModule()->getContext();
     llvm::IRBuilder<> builder(&I);
     if (before)
@@ -211,7 +214,7 @@ void ObliviousHashInsertionPass::setup_functions(llvm::Module& M)
     // arguments of logger are line and column number of instruction and hash variable to log
     llvm::ArrayRef<llvm::Type*> logger_params{llvm::Type::getInt32Ty(Ctx), llvm::Type::getInt64PtrTy(Ctx)};
     llvm::FunctionType* logger_type = llvm::FunctionType::get(llvm::Type::getVoidTy(Ctx), logger_params, false);
-    logger = M.getOrInsertFunction("log", logger_type);
+    logger = M.getOrInsertFunction("oh_log", logger_type);
 }
 
 void ObliviousHashInsertionPass::setup_hash_values(llvm::Module& M)
@@ -235,8 +238,8 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
 
     hashPtrs.reserve(num_hash);
     const auto& input_dependency_info = getAnalysis<input_dependency::InputDependencyAnalysis>();
+    const auto& function_calls = getAnalysis<input_dependency::InputDependentFunctionsPass>();
     const auto& non_det_blocks = getAnalysis<NonDeterministicBasicBlocksAnalysis>();
-    const auto& function_calls = getAnalysis<FunctionCallsPass>();
     
     // Get the function to call from our runtime library.
     setup_functions(M);
@@ -245,26 +248,23 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
 
     llvm::Instruction* last_instr;
     for (auto& F : M) {
-        // no hashes for functions called from non deterministc blocks
-        if (function_calls.is_function_called_in_non_det_block(&F)) {
-            continue;
-        }
-        bool add_loger_in_function = !function_calls.is_function_called_in_a_loop(&F);
         // No input dependency info for declarations and instrinsics.
         if (F.isDeclaration() || F.isIntrinsic()) {
             continue;
         }
-        llvm::LoopInfo& LI = getAnalysis<llvm::LoopInfoWrapperPass>(F).getLoopInfo();
-        llvm::dbgs() << F.getName() << "\n";
-        for (auto& B : F) { 
-            bool add_loger_in_block = !non_det_blocks.is_block_nondeterministic(&B);
+        // no hashes for functions called from non deterministc blocks
+        if (function_calls.is_function_input_dependent(&F)) {
+            continue;
+        }
+        for (auto& B : F) {
+            if (non_det_blocks.is_block_nondeterministic(&B)) {
+                llvm::dbgs() << "input dep block " << B.getName() << "\n";
+                continue;
+            }
             for (auto& I : B) {
-                if (llvm::dyn_cast<llvm::PHINode>(&I)) {
-                    continue;
-                }
                 if (auto callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
                     auto calledF = callInst->getCalledFunction();
-                    if (calledF && calledF->getName() == "log") {
+                    if (calledF && calledF->getName() == "oh_log") {
                         continue;
                     }
                 }
@@ -276,11 +276,8 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
                     instrumentInst(I);
                     modified = true;
                 }
-                // no logging inside a loop
-                if (add_loger_in_block) {
-                    insertLogger(I);
-                    modified = true;
-                }
+                insertLogger(I);
+                modified = true;
             }
         }
     }
