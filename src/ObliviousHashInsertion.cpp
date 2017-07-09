@@ -257,7 +257,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
             continue;
         }
         for (auto& B : F) {
-            if (non_det_blocks.is_block_nondeterministic(&B)) {
+            if (non_det_blocks.is_block_nondeterministic(&B) && &F.back() != &B) {
                 continue;
             }
             for (auto& I : B) {
@@ -267,17 +267,18 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
                 if (auto callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
                     auto calledF = callInst->getCalledFunction();
                     if (calledF && calledF->getName() == "oh_log") {
+                        last_instr = &I;
                         continue;
                     }
                 }
                 if (input_dependency_info.isInputDependent(&I)) {
                     //llvm::dbgs() << "D: " << I << "\n";
                 } else {
-                    last_instr = &I;
                     //llvm::dbgs() << "I: " << I << "\n";
                     instrumentInst(I);
                     modified = true;
                 }
+                last_instr = &I;
                 insertLogger(I);
                 modified = true;
             }

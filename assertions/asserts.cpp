@@ -15,13 +15,18 @@ public:
 
     void log(unsigned id, uint64_t hash)
     {
+        printf("logging: id %u hash %lu\n", id, hash);
+        log_stream << id << " " << hash << "\n";
+    }
+
+    void log_with_max_count(unsigned id, uint64_t hash)
+    {
         unsigned size = log_counts.size();
-        printf("size %d\n", size);
+//        printf("size %d\n", size);
         if (size <= id) {
             try {
                 log_counts.resize(2 * (id + 1));
             } catch (const std::exception& e) {
-                printf("yah %d\n", id);
                 return;
             }
         }

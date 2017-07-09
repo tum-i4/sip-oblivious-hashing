@@ -88,7 +88,7 @@ void AssertionInsertionPass::process_log_call(llvm::CallInst* log_call)
 {
     const unsigned log_id = unique_id_generator::get().next();
     const auto& precomputed_hashes = hashes[log_id];
-    llvm::dbgs() << "log_id " << log_id << " hash values: ";
+    //llvm::dbgs() << "log_id " << log_id << " hash values: ";
 
     llvm::LLVMContext &Ctx = log_call->getModule()->getContext();
     llvm::IRBuilder<> builder(log_call);
@@ -99,10 +99,10 @@ void AssertionInsertionPass::process_log_call(llvm::CallInst* log_call)
     arg_values.push_back(hash_val);
     arg_values.push_back(llvm::ConstantInt::get(llvm::Type::getInt32Ty(Ctx), precomputed_hashes.size()));
     for (const auto& hash_value : precomputed_hashes) {
-        llvm::dbgs() << hash_value << " ";
+        //llvm::dbgs() << hash_value << " ";
         arg_values.push_back(llvm::ConstantInt::get(llvm::Type::getInt64Ty(Ctx), hash_value));
     }
-    llvm::dbgs() << "\n";
+    //llvm::dbgs() << "\n";
     builder.CreateCall(assert, arg_values);
 }
 

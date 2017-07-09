@@ -49,12 +49,13 @@ bool NonDeterministicBasicBlocksAnalysis::runOnModule(llvm::Module& M)
             }
             auto loop = LI.getLoopFor(&B);
             if (is_non_det) {
-                if (!postdominates_all_predecessors) {
-                    non_deterministic_blocks.insert(&B);
-                } else if (loop != nullptr) {
-                    // header always dominates predecessors, doesn't mean it is deterministic
-                    non_deterministic_blocks.insert(&B);
-                }
+                non_deterministic_blocks.insert(&B);
+                //if (!postdominates_all_predecessors) {
+                //    non_deterministic_blocks.insert(&B);
+                //} else if (loop != nullptr) {
+                //    // header always dominates predecessors, doesn't mean it is deterministic
+                //    non_deterministic_blocks.insert(&B);
+                //}
             }
         }
     }
