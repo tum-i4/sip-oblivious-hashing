@@ -246,7 +246,6 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
     // Insert Globals
     setup_hash_values(M);
 
-    llvm::Instruction* last_instr;
     for (auto& F : M) {
         // No input dependency info for declarations and instrinsics.
         if (F.isDeclaration() || F.isIntrinsic()) {
@@ -267,7 +266,6 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
                 if (auto callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
                     auto calledF = callInst->getCalledFunction();
                     if (calledF && calledF->getName() == "oh_log") {
-                        last_instr = &I;
                         continue;
                     }
                 }
@@ -278,13 +276,11 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
                     instrumentInst(I);
                     modified = true;
                 }
-                last_instr = &I;
                 insertLogger(I);
                 modified = true;
             }
         }
     }
-    end_logging(*last_instr);
     return modified;
 }
 
