@@ -252,7 +252,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
             continue;
         }
         // no hashes for functions called from non deterministc blocks
-        if (function_calls.is_function_input_dependent(&F)) {
+        if (!function_calls.is_function_input_independent(&F)) {
             continue;
         }
         for (auto& B : F) {
