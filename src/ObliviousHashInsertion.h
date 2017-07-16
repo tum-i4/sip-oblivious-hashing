@@ -22,9 +22,10 @@ public:
     virtual void getAnalysisUsage(llvm::AnalysisUsage& AU) const override;
 
 private:
-
     void setup_functions(llvm::Module& M);
     void setup_hash_values(llvm::Module& M);
+    void process_non_deterministic_block(llvm::BasicBlock* block);
+    void process_input_dependent_function(llvm::Function* F);
     bool insertHashBuilder(llvm::IRBuilder<> &builder, llvm::Value *v);
     void insertHash(llvm::Instruction& I, llvm::Value *v, bool before);
     bool instrumentInst(llvm::Instruction& I);
@@ -36,6 +37,11 @@ private:
     llvm::Constant *hashFunc1;
     llvm::Constant *hashFunc2;
     llvm::Constant *logger;
+    llvm::Constant *dummy_logger;
+    llvm::Constant *reset;
+    // TODO: for debug. delete later
+    llvm::Constant *print;
+    llvm::GlobalVariable* non_det_hash;
     std::vector<llvm::GlobalVariable *> hashPtrs;
     std::vector<unsigned> usedHashIndices;
 };

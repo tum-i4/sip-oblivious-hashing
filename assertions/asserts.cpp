@@ -1,4 +1,3 @@
-
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -15,7 +14,7 @@ public:
 
     void log(unsigned id, uint64_t hash)
     {
-        printf("logging: id %u hash %lu\n", id, hash);
+      //  printf("logging: id %u hash %lu\n", id, hash);
         log_stream << id << " " << hash << "\n";
     }
 
@@ -41,7 +40,7 @@ public:
         //if (log_counts[id] >= max_log_count) {
         //    return;
         //}
-        printf("logging: id %u hash %lu\n", id, hash);
+        //printf("logging: id %u hash %lu\n", id, hash);
         log_stream << id << " " << hash << "\n";
         ++log_counts[id];
     }
@@ -68,6 +67,12 @@ void oh_log(unsigned id, uint64_t* hashVar)
         return;
     }
     _logger.log(id, *hashVar);
+}
+
+void dummy_log(uint64_t* hashVar, uint64_t hashVal)
+{
+    //printf("Hash variable %lu prcumputed hash %lu\n", *hashVar, hashVal);
+    // dummy function. only for assertion inserter to change to assert
 }
 
 void assert_(uint64_t* hashVar, uint64_t hash)
@@ -101,6 +106,9 @@ void oh_assert(uint64_t* hashVar, int values_count, ...)
         }
     }
     if (!is_valid) {
+        //if (hash == 272) {
+        //    return;
+        //}
         std::cout << "Fail: " << *hashVar << " != " << hash << "\n";
         abort();
     }

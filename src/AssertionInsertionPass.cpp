@@ -43,6 +43,10 @@ bool AssertionInsertionPass::runOnModule(llvm::Module& M)
                         process_log_call(callInst);
                         log_calls.push_back(callInst);
                         modified = true;
+                    } else if (calledF && calledF->getName() == "dummy_log") {
+                        process_dummy_log(callInst);
+                        //log_calls.push_back(callInst);
+                        modified = true;
                     }
                 }
             }
@@ -103,6 +107,25 @@ void AssertionInsertionPass::process_log_call(llvm::CallInst* log_call)
         arg_values.push_back(llvm::ConstantInt::get(llvm::Type::getInt64Ty(Ctx), hash_value));
     }
     //llvm::dbgs() << "\n";
+    builder.CreateCall(assert, arg_values);
+}
+
+void AssertionInsertionPass::process_dummy_log(llvm::CallInst* log_call)
+{
+    llvm::Value* hashVal = log_call->getArgOperand(1);
+    llvm::ConstantInt* constHashVal = llvm::dyn_cast<llvm::ConstantInt>(hashVal);
+    if (constHashVal == nullptr) {
+        llvm::dbgs() << "Arg of log is not constant expression\n";
+        return;
+    }
+    llvm::LLVMContext &Ctx = log_call->getModule()->getContext();
+    llvm::IRBuilder<> builder(log_call);
+    builder.SetInsertPoint(log_call->getParent(), builder.GetInsertPoint());
+    std::vector<llvm::Value*> arg_values;
+    llvm::Value* hash_val = log_call->getArgOperand(0);
+    arg_values.push_back(hash_val);
+    arg_values.push_back(llvm::ConstantInt::get(llvm::Type::getInt32Ty(Ctx), 1));
+    arg_values.push_back(llvm::ConstantInt::get(llvm::Type::getInt64Ty(Ctx), constHashVal->getZExtValue()));
     builder.CreateCall(assert, arg_values);
 }
 

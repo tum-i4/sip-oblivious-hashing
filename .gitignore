@@ -1,1 +1,3 @@
 src/.*.swp
+*.ll
+*.bc

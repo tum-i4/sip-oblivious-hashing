@@ -23,6 +23,8 @@
 #include <assert.h>
 #include <cstdlib>
 #include <ctime>
+#include <stdio.h>
+#include <stdint.h>
 
 namespace oh {
 
@@ -30,9 +32,44 @@ namespace {
 
 unsigned get_random(unsigned range)
 {
+    if (range == 0) {
+        return 0;
+    }
     return rand() % range;
 }
 
+// Duplicates functions from hash.c
+
+// PJW Hash
+void hash2(uint64_t *hashVar, uint64_t value) {
+  //*hashVar += value;
+  llvm::dbgs() << "before: hash2: " << value << " value: " << *hashVar << "\n";
+  uint8_t *key = (uint8_t *)&value;
+  uint64_t high = 0;
+  for (int i = 0; i < sizeof(value); i++) {
+    *hashVar = (*hashVar << 4) + key[i];
+    if ((high = *hashVar & 0xF000000000000000))
+      *hashVar ^= high >> 56;
+    *hashVar &= ~high;
+  }
+  llvm::dbgs() << "after: hash2: " << value << " value: " << *hashVar << "\n";
+  //printf("H2: %lu\n", *hashVar);
+}
+
+//CRC Variant
+void hash1(uint64_t *hashVar, uint64_t value) {
+  llvm::dbgs() << "before hash1: " << value << " value: " << *hashVar << "\n";
+  uint8_t *key= (uint8_t *)&value;
+  uint64_t highorder = 0;
+  for (int i = 0; i < sizeof(value); i++) {
+    highorder = *hashVar & 0xF800000000000000;
+    *hashVar = *hashVar << 5;
+    *hashVar ^= highorder >> 59;
+    *hashVar ^= key[i];
+  }
+  llvm::dbgs() << "after hash1: " << value << " value: " << *hashVar << "\n";
+  //printf("H1: %lu\n", *hashVar);
+}
 }
 
 char ObliviousHashInsertionPass::ID = 0;
@@ -78,7 +115,7 @@ bool ObliviousHashInsertionPass::insertHashBuilder(llvm::IRBuilder<> &builder, l
         assert(false);
 
     std::vector<llvm::Value*> arg_values;
-    unsigned index = get_random(num_hash);
+    unsigned index = get_random(num_hash - 1);
     usedHashIndices.push_back(index);
     arg_values.push_back(hashPtrs.at(index));
     arg_values.push_back(cast);
@@ -215,12 +252,24 @@ void ObliviousHashInsertionPass::setup_functions(llvm::Module& M)
     llvm::ArrayRef<llvm::Type*> logger_params{llvm::Type::getInt32Ty(Ctx), llvm::Type::getInt64PtrTy(Ctx)};
     llvm::FunctionType* logger_type = llvm::FunctionType::get(llvm::Type::getVoidTy(Ctx), logger_params, false);
     logger = M.getOrInsertFunction("oh_log", logger_type);
+
+    llvm::ArrayRef<llvm::Type*> dummy_logger_params{llvm::Type::getInt64PtrTy(Ctx), llvm::Type::getInt64Ty(Ctx)};
+    llvm::FunctionType* dummy_logger_type = llvm::FunctionType::get(llvm::Type::getVoidTy(Ctx), dummy_logger_params, false);
+    dummy_logger = M.getOrInsertFunction("dummy_log", dummy_logger_type);
+
+
+    llvm::ArrayRef<llvm::Type*> reset_logger_params{llvm::Type::getInt64PtrTy(Ctx)};
+    llvm::FunctionType* reset_logger_type = llvm::FunctionType::get(llvm::Type::getVoidTy(Ctx), reset_logger_params, false);
+    reset = M.getOrInsertFunction("reset", reset_logger_type);
+
+    print = M.getOrInsertFunction("print", reset_logger_type);
 }
 
 void ObliviousHashInsertionPass::setup_hash_values(llvm::Module& M)
 {
     llvm::LLVMContext &Ctx = M.getContext();
-    for (int i = 0; i < num_hash; i++) {
+    // the last hash variable is for computing hashes over non deterministci branches
+    for (int i = 0; i <= num_hash; i++) {
         hashPtrs.push_back(new llvm::GlobalVariable(M,
                     llvm::Type::getInt64Ty(Ctx),
                     false,
@@ -229,14 +278,126 @@ void ObliviousHashInsertionPass::setup_hash_values(llvm::Module& M)
     }
 }
 
+void ObliviousHashInsertionPass::process_non_deterministic_block(llvm::BasicBlock* block)
+{
+    //if (block->getName() == "for.end49") {
+    //    return;
+    //}
+
+    uint64_t hash_value = 0;
+    llvm::ConstantInt* constantValue = nullptr;
+    llvm::Value* valueToHash = nullptr;
+    llvm::LLVMContext &Ctx = block->getContext();
+    llvm::IRBuilder<> builder(block);
+    builder.SetInsertPoint(block->getFirstNonPHI());
+    //auto zero = llvm::ConstantInt::get(llvm::Type::getInt64Ty(Ctx), 0);
+    auto hashVariable = hashPtrs.back();
+    //builder.CreateStore(zero, hashVariable);
+    std::vector<llvm::Value*> reset_arg_values;
+    reset_arg_values.push_back(hashVariable);
+    llvm::ArrayRef<llvm::Value*> reset_args(reset_arg_values);
+    builder.CreateCall(reset, reset_args);
+
+    //std::vector<llvm::Value*> arg_values1;
+    //arg_values1.push_back(hashVariable);
+    //auto hash_value_const1 = llvm::ConstantInt::get(llvm::Type::getInt64Ty(Ctx), 0);
+    //arg_values1.push_back(hash_value_const1);
+    //llvm::ArrayRef<llvm::Value*> args1(arg_values1);
+    //builder.CreateCall(dummy_logger, args1);
+
+    for (auto& I : *block) {
+        constantValue = nullptr;
+        valueToHash = nullptr;
+        if (auto* load = llvm::dyn_cast<llvm::LoadInst>(&I)) {
+            valueToHash = load->getOperand(0);
+            if (!valueToHash->getType()->isIntegerTy()) {
+                continue;
+            }
+            constantValue = llvm::dyn_cast<llvm::ConstantInt>(valueToHash);
+        } else if (auto* store = llvm::dyn_cast<llvm::StoreInst>(&I)) {
+            valueToHash = store->getValueOperand();
+            if (!valueToHash->getType()->isIntegerTy()) {
+                continue;
+            }
+            constantValue = llvm::dyn_cast<llvm::ConstantInt>(valueToHash);
+        } else if (auto* cmp = llvm::dyn_cast<llvm::ICmpInst>(&I)) {
+            valueToHash = cmp->getOperand(1);
+            if (!valueToHash->getType()->isIntegerTy()) {
+                continue;
+            }
+            constantValue = llvm::dyn_cast<llvm::ConstantInt>(valueToHash);
+        }
+        if (constantValue == nullptr) {
+            continue;
+        }
+        assert(constantValue != nullptr);
+        assert(valueToHash != nullptr);
+        llvm::IRBuilder<> l_builder(&I);
+        if (I.isTerminator()) {
+            // before terminator
+            l_builder.SetInsertPoint(&I);
+        } else {
+            // after
+            l_builder.SetInsertPoint(block, ++l_builder.GetInsertPoint());
+        }
+        //if (block->getName() == "for.end49") {
+        //    if (constantValue->getZExtValue() == 0) {
+        //        continue;
+        //    }
+        //}
+        std::vector<llvm::Value*> arg_values;
+        arg_values.push_back(hashVariable);
+        auto cast = l_builder.CreateZExtOrBitCast(constantValue, llvm::Type::getInt64Ty(Ctx));
+        arg_values.push_back(cast);
+        llvm::ArrayRef<llvm::Value*> args(arg_values);
+        int hashFidx = get_random(2);
+        l_builder.CreateCall(hashFidx ? hashFunc1 : hashFunc2, args);
+
+        //if (block->getName() == "for.end49") {
+        //    std::vector<llvm::Value*> print_arg_values;
+        //    print_arg_values.push_back(hashVariable);
+        //    llvm::ArrayRef<llvm::Value*> print_args(print_arg_values);
+        //    l_builder.CreateCall(print, print_args);
+        //}
+
+        auto constVal = llvm::ConstantInt::get(llvm::Type::getInt64Ty(Ctx), constantValue->getZExtValue());
+        if (hashFidx) {
+            hash1(&hash_value, constVal->getZExtValue());
+        } else {
+            hash2(&hash_value, constVal->getZExtValue());
+        }
+      }
+
+    builder.SetInsertPoint(&block->back());
+    std::vector<llvm::Value*> arg_values;
+    arg_values.push_back(hashVariable);
+    auto hash_value_const = llvm::ConstantInt::get(llvm::Type::getInt64Ty(Ctx), hash_value);
+    arg_values.push_back(hash_value_const);
+    llvm::ArrayRef<llvm::Value*> args(arg_values);
+    builder.CreateCall(dummy_logger, args);
+    llvm::dbgs() << "Precomputed hash: function " << block->getParent()->getName()
+                 << " block: " << block->getName() << " hash: " << hash_value << "\n";
+}
+
+void ObliviousHashInsertionPass::process_input_dependent_function(llvm::Function* F)
+{
+    for (auto& B : *F) {
+        process_non_deterministic_block(&B);
+    }
+}
+
 bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
 {
+    if (num_hash == 0) {
+        llvm::dbgs() << "Number of hash variables is not defined. Setting to 1\n";
+        num_hash = 1;
+    }
     llvm::dbgs() << "Insert hash computation\n";
     bool modified = false;
     unique_id_generator::get().reset();
     srand(time(NULL));
 
-    hashPtrs.reserve(num_hash);
+    hashPtrs.reserve(num_hash + 1);
     const auto& input_dependency_info = getAnalysis<input_dependency::InputDependencyAnalysis>();
     const auto& function_calls = getAnalysis<input_dependency::InputDependentFunctionsPass>();
     const auto& non_det_blocks = getAnalysis<NonDeterministicBasicBlocksAnalysis>();
@@ -253,10 +414,13 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
         }
         // no hashes for functions called from non deterministc blocks
         if (!function_calls.is_function_input_independent(&F)) {
+            llvm::dbgs() << "Function called from non-deterministic block " << F.getName() << "\n";
+            process_input_dependent_function(&F);
             continue;
         }
         for (auto& B : F) {
             if (non_det_blocks.is_block_nondeterministic(&B) && &F.back() != &B) {
+                process_non_deterministic_block(&B);
                 continue;
             }
             for (auto& I : B) {
