@@ -39,11 +39,8 @@ unsigned get_random(unsigned range)
 }
 
 // Duplicates functions from hash.c
-
 // PJW Hash
 void hash2(uint64_t *hashVar, uint64_t value) {
-  //*hashVar += value;
-  llvm::dbgs() << "before: hash2: " << value << " value: " << *hashVar << "\n";
   uint8_t *key = (uint8_t *)&value;
   uint64_t high = 0;
   for (int i = 0; i < sizeof(value); i++) {
@@ -52,13 +49,11 @@ void hash2(uint64_t *hashVar, uint64_t value) {
       *hashVar ^= high >> 56;
     *hashVar &= ~high;
   }
-  llvm::dbgs() << "after: hash2: " << value << " value: " << *hashVar << "\n";
-  //printf("H2: %lu\n", *hashVar);
+  //printf("H2: %lu %lu\n", value, *hashVar);
 }
 
 //CRC Variant
 void hash1(uint64_t *hashVar, uint64_t value) {
-  llvm::dbgs() << "before hash1: " << value << " value: " << *hashVar << "\n";
   uint8_t *key= (uint8_t *)&value;
   uint64_t highorder = 0;
   for (int i = 0; i < sizeof(value); i++) {
@@ -67,9 +62,9 @@ void hash1(uint64_t *hashVar, uint64_t value) {
     *hashVar ^= highorder >> 59;
     *hashVar ^= key[i];
   }
-  llvm::dbgs() << "after hash1: " << value << " value: " << *hashVar << "\n";
-  //printf("H1: %lu\n", *hashVar);
+  //printf("H1: %lu %lu\n", value, *hashVar);
 }
+
 }
 
 char ObliviousHashInsertionPass::ID = 0;
@@ -252,24 +247,13 @@ void ObliviousHashInsertionPass::setup_functions(llvm::Module& M)
     llvm::ArrayRef<llvm::Type*> logger_params{llvm::Type::getInt32Ty(Ctx), llvm::Type::getInt64PtrTy(Ctx)};
     llvm::FunctionType* logger_type = llvm::FunctionType::get(llvm::Type::getVoidTy(Ctx), logger_params, false);
     logger = M.getOrInsertFunction("oh_log", logger_type);
-
-    llvm::ArrayRef<llvm::Type*> dummy_logger_params{llvm::Type::getInt64PtrTy(Ctx), llvm::Type::getInt64Ty(Ctx)};
-    llvm::FunctionType* dummy_logger_type = llvm::FunctionType::get(llvm::Type::getVoidTy(Ctx), dummy_logger_params, false);
-    dummy_logger = M.getOrInsertFunction("dummy_log", dummy_logger_type);
-
-
-    llvm::ArrayRef<llvm::Type*> reset_logger_params{llvm::Type::getInt64PtrTy(Ctx)};
-    llvm::FunctionType* reset_logger_type = llvm::FunctionType::get(llvm::Type::getVoidTy(Ctx), reset_logger_params, false);
-    reset = M.getOrInsertFunction("reset", reset_logger_type);
-
-    print = M.getOrInsertFunction("print", reset_logger_type);
 }
 
 void ObliviousHashInsertionPass::setup_hash_values(llvm::Module& M)
 {
     llvm::LLVMContext &Ctx = M.getContext();
     // the last hash variable is for computing hashes over non deterministci branches
-    for (int i = 0; i <= num_hash; i++) {
+    for (int i = 0; i < num_hash; i++) {
         hashPtrs.push_back(new llvm::GlobalVariable(M,
                     llvm::Type::getInt64Ty(Ctx),
                     false,
@@ -280,103 +264,112 @@ void ObliviousHashInsertionPass::setup_hash_values(llvm::Module& M)
 
 void ObliviousHashInsertionPass::process_non_deterministic_block(llvm::BasicBlock* block)
 {
-    //if (block->getName() == "for.end49") {
-    //    return;
-    //}
+    std::vector<llvm::ConstantInt*> constantValues;
 
-    uint64_t hash_value = 0;
-    llvm::ConstantInt* constantValue = nullptr;
     llvm::Value* valueToHash = nullptr;
     llvm::LLVMContext &Ctx = block->getContext();
-    llvm::IRBuilder<> builder(block);
-    builder.SetInsertPoint(block->getFirstNonPHI());
-    //auto zero = llvm::ConstantInt::get(llvm::Type::getInt64Ty(Ctx), 0);
+    llvm::BasicBlock& entry_block = block->getParent()->getEntryBlock();
+    auto local_alloca = new llvm::AllocaInst(llvm::Type::getInt64Ty(entry_block.getContext()), 0, 8, "hashVariable");
+    auto alloca_pos = entry_block.getInstList().insertAfter(entry_block.begin(), local_alloca);
+
+    auto local_store = new llvm::StoreInst(llvm::ConstantInt::get(llvm::Type::getInt64Ty(Ctx), 0), local_alloca, false, 8);
+    if (block == &entry_block) {
+        entry_block.getInstList().insertAfter(alloca_pos, local_store);
+    } else {
+        block->getInstList().insert(block->getFirstInsertionPt(), local_store);
+    }
+
     auto hashVariable = hashPtrs.back();
-    //builder.CreateStore(zero, hashVariable);
-    std::vector<llvm::Value*> reset_arg_values;
-    reset_arg_values.push_back(hashVariable);
-    llvm::ArrayRef<llvm::Value*> reset_args(reset_arg_values);
-    builder.CreateCall(reset, reset_args);
-
-    //std::vector<llvm::Value*> arg_values1;
-    //arg_values1.push_back(hashVariable);
-    //auto hash_value_const1 = llvm::ConstantInt::get(llvm::Type::getInt64Ty(Ctx), 0);
-    //arg_values1.push_back(hash_value_const1);
-    //llvm::ArrayRef<llvm::Value*> args1(arg_values1);
-    //builder.CreateCall(dummy_logger, args1);
-
     for (auto& I : *block) {
-        constantValue = nullptr;
+        constantValues.clear();
         valueToHash = nullptr;
         if (auto* load = llvm::dyn_cast<llvm::LoadInst>(&I)) {
             valueToHash = load->getOperand(0);
             if (!valueToHash->getType()->isIntegerTy()) {
                 continue;
             }
-            constantValue = llvm::dyn_cast<llvm::ConstantInt>(valueToHash);
+            if (auto constVal = llvm::dyn_cast<llvm::ConstantInt>(valueToHash)) {
+                constantValues.push_back(constVal);
+            }
         } else if (auto* store = llvm::dyn_cast<llvm::StoreInst>(&I)) {
             valueToHash = store->getValueOperand();
             if (!valueToHash->getType()->isIntegerTy()) {
                 continue;
             }
-            constantValue = llvm::dyn_cast<llvm::ConstantInt>(valueToHash);
-        } else if (auto* cmp = llvm::dyn_cast<llvm::ICmpInst>(&I)) {
-            valueToHash = cmp->getOperand(1);
-            if (!valueToHash->getType()->isIntegerTy()) {
+            if (auto constVal = llvm::dyn_cast<llvm::ConstantInt>(valueToHash)) {
+                constantValues.push_back(constVal);
+            }
+        }
+       // else if (auto* cmp = llvm::dyn_cast<llvm::ICmpInst>(&I)) {
+       //     valueToHash = cmp->getOperand(1);
+       //     if (!valueToHash->getType()->isIntegerTy()) {
+       //         continue;
+       //     }
+       //     if (auto constVal = llvm::dyn_cast<llvm::ConstantInt>(valueToHash)) {
+       //         constantValues.push_back(constVal);
+       //     }
+       // } 
+        else if (auto* call = llvm::dyn_cast<llvm::CallInst>(&I)) {
+            auto calledF = call->getCalledFunction();
+            if (calledF == nullptr)  {
                 continue;
             }
-            constantValue = llvm::dyn_cast<llvm::ConstantInt>(valueToHash);
+            if (calledF->getName() == "oh_log"
+                || calledF->getName() == "oh_assert"
+                || calledF->getName() == "hash1"
+                || calledF->getName() == "hash2") {
+                continue;
+            }
+            for (unsigned i = 0; i < call->getNumArgOperands(); ++i) {
+                auto arg = call->getArgOperand(i);
+                if (!arg->getType()->isIntegerTy()) {
+                    continue;
+                }
+                if (auto constVal = llvm::dyn_cast<llvm::ConstantInt>(arg)) {
+                    constantValues.push_back(constVal);
+                }
+            }
         }
-        if (constantValue == nullptr) {
+        if (constantValues.empty()) {
             continue;
         }
-        assert(constantValue != nullptr);
-        assert(valueToHash != nullptr);
-        llvm::IRBuilder<> l_builder(&I);
-        if (I.isTerminator()) {
-            // before terminator
-            l_builder.SetInsertPoint(&I);
-        } else {
-            // after
-            l_builder.SetInsertPoint(block, ++l_builder.GetInsertPoint());
+        for (auto& constantValue : constantValues) {
+            if (constantValue == nullptr) {
+                continue;
+            }
+            if (constantValue->getSExtValue() < 0) {
+                continue;
+            }
+            llvm::IRBuilder<> l_builder(&I);
+            if (I.isTerminator()) {
+                // before terminator
+                l_builder.SetInsertPoint(&I);
+            } else {
+                // after
+                l_builder.SetInsertPoint(block, ++l_builder.GetInsertPoint());
+            }
+            std::vector<llvm::Value*> arg_values;
+            arg_values.push_back(local_alloca);
+            auto cast = l_builder.CreateZExtOrBitCast(constantValue, llvm::Type::getInt64Ty(Ctx));
+            arg_values.push_back(cast);
+            llvm::ArrayRef<llvm::Value*> args(arg_values);
+            int hashFidx = get_random(2);
+            l_builder.CreateCall(hashFidx ? hashFunc1 : hashFunc2, args);
         }
-        //if (block->getName() == "for.end49") {
-        //    if (constantValue->getZExtValue() == 0) {
-        //        continue;
-        //    }
-        //}
-        std::vector<llvm::Value*> arg_values;
-        arg_values.push_back(hashVariable);
-        auto cast = l_builder.CreateZExtOrBitCast(constantValue, llvm::Type::getInt64Ty(Ctx));
-        arg_values.push_back(cast);
-        llvm::ArrayRef<llvm::Value*> args(arg_values);
-        int hashFidx = get_random(2);
-        l_builder.CreateCall(hashFidx ? hashFunc1 : hashFunc2, args);
+    }
 
-        //if (block->getName() == "for.end49") {
-        //    std::vector<llvm::Value*> print_arg_values;
-        //    print_arg_values.push_back(hashVariable);
-        //    llvm::ArrayRef<llvm::Value*> print_args(print_arg_values);
-        //    l_builder.CreateCall(print, print_args);
-        //}
-
-        auto constVal = llvm::ConstantInt::get(llvm::Type::getInt64Ty(Ctx), constantValue->getZExtValue());
-        if (hashFidx) {
-            hash1(&hash_value, constVal->getZExtValue());
-        } else {
-            hash2(&hash_value, constVal->getZExtValue());
-        }
-      }
-
+    llvm::IRBuilder<> builder(block);
     builder.SetInsertPoint(&block->back());
     std::vector<llvm::Value*> arg_values;
-    arg_values.push_back(hashVariable);
-    auto hash_value_const = llvm::ConstantInt::get(llvm::Type::getInt64Ty(Ctx), hash_value);
-    arg_values.push_back(hash_value_const);
+    unsigned id = unique_id_generator::get().next();
+
+    llvm::Value* id_value = llvm::ConstantInt::get(llvm::Type::getInt32Ty(Ctx), id);
+    //llvm::dbgs() << "ID  " << id << " for instruction " << instr << "\n";
+    builder.SetInsertPoint(&block->back());
+    arg_values.push_back(id_value);
+    arg_values.push_back(local_alloca);
     llvm::ArrayRef<llvm::Value*> args(arg_values);
-    builder.CreateCall(dummy_logger, args);
-    llvm::dbgs() << "Precomputed hash: function " << block->getParent()->getName()
-                 << " block: " << block->getName() << " hash: " << hash_value << "\n";
+    builder.CreateCall(logger, args);
 }
 
 void ObliviousHashInsertionPass::process_input_dependent_function(llvm::Function* F)

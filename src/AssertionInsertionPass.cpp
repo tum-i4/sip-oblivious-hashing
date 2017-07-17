@@ -43,10 +43,6 @@ bool AssertionInsertionPass::runOnModule(llvm::Module& M)
                         process_log_call(callInst);
                         log_calls.push_back(callInst);
                         modified = true;
-                    } else if (calledF && calledF->getName() == "dummy_log") {
-                        process_dummy_log(callInst);
-                        //log_calls.push_back(callInst);
-                        modified = true;
                     }
                 }
             }
@@ -63,7 +59,8 @@ bool AssertionInsertionPass::runOnModule(llvm::Module& M)
 
 void AssertionInsertionPass::parse_hashes()
 {
-    hashes.resize(100000);
+    unsigned initial_size = 100000;
+    hashes.resize(initial_size);
     std::ifstream hash_strm;
     hash_strm.open("hashes.log");
     std::string id_str;
@@ -74,6 +71,9 @@ void AssertionInsertionPass::parse_hashes()
         unsigned id = std::stoi(id_str);
         uint64_t hash = std::stoull(hash_str);
         //llvm::dbgs() << id << " " << hash << "\n";
+        if (id >= initial_size) {
+            hashes.resize(initial_size * 2);
+        }
         hashes[id].insert(hash);
     }
     hash_strm.close();
@@ -112,6 +112,7 @@ void AssertionInsertionPass::process_log_call(llvm::CallInst* log_call)
 
 void AssertionInsertionPass::process_dummy_log(llvm::CallInst* log_call)
 {
+    assert(log_call->getCalledFunction()->getName() == "dummy_log");
     llvm::Value* hashVal = log_call->getArgOperand(1);
     llvm::ConstantInt* constHashVal = llvm::dyn_cast<llvm::ConstantInt>(hashVal);
     if (constHashVal == nullptr) {

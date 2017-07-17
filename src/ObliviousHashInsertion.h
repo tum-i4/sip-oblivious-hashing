@@ -37,11 +37,6 @@ private:
     llvm::Constant *hashFunc1;
     llvm::Constant *hashFunc2;
     llvm::Constant *logger;
-    llvm::Constant *dummy_logger;
-    llvm::Constant *reset;
-    // TODO: for debug. delete later
-    llvm::Constant *print;
-    llvm::GlobalVariable* non_det_hash;
     std::vector<llvm::GlobalVariable *> hashPtrs;
     std::vector<unsigned> usedHashIndices;
 };
