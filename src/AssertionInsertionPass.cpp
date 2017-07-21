@@ -88,6 +88,9 @@ void AssertionInsertionPass::process_log_call(llvm::CallInst* log_call)
 {
     const unsigned log_id = unique_id_generator::get().next();
     const auto& precomputed_hashes = hashes[log_id];
+    if (precomputed_hashes.empty()) {
+        return;
+    }
     //llvm::dbgs() << "log_id " << log_id << " hash values: ";
 
     llvm::LLVMContext &Ctx = log_call->getModule()->getContext();

@@ -10,7 +10,7 @@ public:
     logger()
         : max_log_count(2)
     {
-        log_stream.open("hashes.log", std::ofstream::out|std::ofstream::app);
+        log_stream.open("hashes.log", std::ofstream::out|std::ofstream::trunc);
 	log_stream.flush();
 	log_stream.close();
     }

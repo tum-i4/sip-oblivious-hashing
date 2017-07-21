@@ -255,6 +255,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
         if (!function_calls.is_function_input_independent(&F)) {
             continue;
         }
+        llvm::LoopInfo& LI = getAnalysis<llvm::LoopInfoWrapperPass>(F).getLoopInfo();
         for (auto& B : F) {
             if (non_det_blocks.is_block_nondeterministic(&B) && &F.back() != &B) {
                 continue;
@@ -275,6 +276,10 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
                     //llvm::dbgs() << "I: " << I << "\n";
                     instrumentInst(I);
                     modified = true;
+                }
+                auto loop = LI.getLoopFor(&B);
+                if (loop != nullptr) {
+                    continue;
                 }
                 insertLogger(I);
                 modified = true;
