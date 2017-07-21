@@ -10,13 +10,18 @@ public:
     logger()
         : max_log_count(2)
     {
-        log_stream.open("hashes.log");
+        log_stream.open("hashes.log", std::ofstream::out|std::ofstream::app);
+	log_stream.flush();
+	log_stream.close();
     }
 
     void log(unsigned id, uint64_t hash)
     {
         printf("logging: id %u hash %lu\n", id, hash);
+        log_stream.open("hashes.log", std::ofstream::out|std::ofstream::app);
         log_stream << id << " " << hash << "\n";
+	log_stream.flush();
+	log_stream.close();
     }
 
     void log_with_max_count(unsigned id, uint64_t hash)
