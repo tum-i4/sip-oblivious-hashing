@@ -69,7 +69,7 @@ void oh_log(unsigned id, uint64_t* hashVar)
     _logger.log(id, *hashVar);
 }
 
-void dummy_log(uint64_t* hashVar, uint64_t hashVal)
+void oh_input_dep_log(uint64_t* hashVar, uint64_t hashVal)
 {
     //printf("Hash variable %lu prcumputed hash %lu\n", *hashVar, hashVal);
     // dummy function. only for assertion inserter to change to assert

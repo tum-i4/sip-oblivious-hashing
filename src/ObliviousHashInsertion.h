@@ -37,6 +37,7 @@ private:
     llvm::Constant *hashFunc1;
     llvm::Constant *hashFunc2;
     llvm::Constant *logger;
+    llvm::Constant *input_dep_logger;
     std::vector<llvm::GlobalVariable *> hashPtrs;
     std::vector<unsigned> usedHashIndices;
 };

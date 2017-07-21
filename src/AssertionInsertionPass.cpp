@@ -43,6 +43,10 @@ bool AssertionInsertionPass::runOnModule(llvm::Module& M)
                         process_log_call(callInst);
                         log_calls.push_back(callInst);
                         modified = true;
+                    } else if (calledF && calledF->getName() == "oh_input_dep_log") {
+                        process_input_dep_log_call(callInst);
+                        log_calls.push_back(callInst);
+                        modified = true;
                     }
                 }
             }
@@ -110,9 +114,9 @@ void AssertionInsertionPass::process_log_call(llvm::CallInst* log_call)
     builder.CreateCall(assert, arg_values);
 }
 
-void AssertionInsertionPass::process_dummy_log(llvm::CallInst* log_call)
+void AssertionInsertionPass::process_input_dep_log_call(llvm::CallInst* log_call)
 {
-    assert(log_call->getCalledFunction()->getName() == "dummy_log");
+    assert(log_call->getCalledFunction()->getName() == "oh_input_dep_log");
     llvm::Value* hashVal = log_call->getArgOperand(1);
     llvm::ConstantInt* constHashVal = llvm::dyn_cast<llvm::ConstantInt>(hashVal);
     if (constHashVal == nullptr) {
