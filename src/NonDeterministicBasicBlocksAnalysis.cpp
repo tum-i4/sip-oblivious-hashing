@@ -2,7 +2,6 @@
 
 #include "input-dependency/InputDependencyAnalysis.h"
 
-#include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Function.h"
@@ -20,7 +19,6 @@ void NonDeterministicBasicBlocksAnalysis::getAnalysisUsage(llvm::AnalysisUsage& 
     AU.setPreservesAll();
     AU.addRequired<llvm::PostDominatorTreeWrapperPass>();
     AU.addRequired<input_dependency::InputDependencyAnalysis>();
-    AU.addRequired<llvm::LoopInfoWrapperPass>();
 }
 
 bool NonDeterministicBasicBlocksAnalysis::runOnModule(llvm::Module& M)
@@ -30,7 +28,6 @@ bool NonDeterministicBasicBlocksAnalysis::runOnModule(llvm::Module& M)
         if (F.isDeclaration() || F.isIntrinsic()) {
             continue;
         }
-        llvm::LoopInfo& LI = getAnalysis<llvm::LoopInfoWrapperPass>(F).getLoopInfo();
         const auto& postDomTree = getAnalysis<llvm::PostDominatorTreeWrapperPass>(F).getPostDomTree();
         for (auto& B : F) {
             auto pred = pred_begin(&B);
@@ -47,7 +44,6 @@ bool NonDeterministicBasicBlocksAnalysis::runOnModule(llvm::Module& M)
                 }
                 ++pred;
             }
-            auto loop = LI.getLoopFor(&B);
             if (is_non_det) {
                 non_deterministic_blocks.insert(&B);
                 //if (!postdominates_all_predecessors) {
