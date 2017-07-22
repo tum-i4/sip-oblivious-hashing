@@ -17,7 +17,7 @@ public:
 
     void log(unsigned id, uint64_t hash)
     {
-        printf("logging: id %u hash %lu\n", id, hash);
+        //printf("logging: id %u hash %lu\n", id, hash);
         log_stream.open("hashes.log", std::ofstream::out|std::ofstream::app);
         log_stream << id << " " << hash << "\n";
 	log_stream.flush();
@@ -46,7 +46,7 @@ public:
         //if (log_counts[id] >= max_log_count) {
         //    return;
         //}
-        printf("logging: id %u hash %lu\n", id, hash);
+        //printf("logging: id %u hash %lu\n", id, hash);
         log_stream << id << " " << hash << "\n";
         ++log_counts[id];
     }
