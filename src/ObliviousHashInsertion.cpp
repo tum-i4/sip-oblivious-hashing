@@ -363,9 +363,6 @@ void ObliviousHashInsertionPass::process_non_deterministic_block(llvm::BasicBloc
             llvm::ArrayRef<llvm::Value*> args(arg_values);
             int hashFidx = get_random(2);
             l_builder.CreateCall(hashFidx ? hashFunc1 : hashFunc2, args);
-            if (block->getParent()->getName() == "draw_line") {
-                llvm::dbgs() << "STOP\n";
-            }
             if (hashFidx) {
                 hash1(&hash_value, constantValue->getZExtValue());
             } else {
