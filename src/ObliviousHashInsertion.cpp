@@ -275,7 +275,7 @@ void ObliviousHashInsertionPass::process_non_deterministic_block(llvm::BasicBloc
     llvm::LLVMContext &Ctx = block->getContext();
     llvm::BasicBlock& entry_block = block->getParent()->getEntryBlock();
     auto local_alloca = new llvm::AllocaInst(llvm::Type::getInt64Ty(entry_block.getContext()), 0, 8, "hashVariable");
-    auto alloca_pos = entry_block.getInstList().insertAfter(entry_block.begin(), local_alloca);
+    auto alloca_pos = entry_block.getInstList().insert(entry_block.begin(), local_alloca);
 
     auto local_store = new llvm::StoreInst(llvm::ConstantInt::get(llvm::Type::getInt64Ty(Ctx), 0), local_alloca, false, 8);
     if (block == &entry_block) {
