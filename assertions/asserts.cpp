@@ -2,7 +2,7 @@
 #include <fstream>
 #include <vector>
 #include <stdexcept>
-
+#include <stdint.h>
 extern "C" {
 
 void assert_(uint64_t* hashVar, uint64_t hash)
