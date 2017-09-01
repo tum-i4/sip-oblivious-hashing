@@ -1,7 +1,7 @@
 #include "ObliviousHashInsertion.h"
 #include "Utils.h"
 #include "NonDeterministicBasicBlocksAnalysis.h"
-
+#include "AssertFunctionMarkPass.h"
 #include "input-dependency/InputDependencyAnalysis.h"
 #include "input-dependency/InputDependentFunctions.h"
 
@@ -47,6 +47,7 @@ void ObliviousHashInsertionPass::getAnalysisUsage(llvm::AnalysisUsage& AU) const
     AU.addRequired<input_dependency::InputDependentFunctionsPass>();
     AU.addRequired<NonDeterministicBasicBlocksAnalysis>();
     AU.addRequired<llvm::LoopInfoWrapperPass>();
+    AU.addRequired<AssertFunctionMarkPass>();
 }
 
 void ObliviousHashInsertionPass::insertHash(llvm::Instruction& I, llvm::Value *v, bool before)
@@ -240,7 +241,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
     const auto& input_dependency_info = getAnalysis<input_dependency::InputDependencyAnalysis>();
     const auto& function_calls = getAnalysis<input_dependency::InputDependentFunctionsPass>();
     const auto& non_det_blocks = getAnalysis<NonDeterministicBasicBlocksAnalysis>();
-    
+    const auto& assert_function_info = getAnalysis<AssertFunctionMarkPass>().get_assert_functions_info();
     // Get the function to call from our runtime library.
     setup_functions(M);
     // Insert Globals
@@ -281,8 +282,14 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
                 if (loop != nullptr) {
                     continue;
                 }
-                insertLogger(I);
-                modified = true;
+		//Filter assert functions, unless there is no assert function specified, 
+		//in which case all functions are good to go
+		if(assert_function_info.get_assert_functions().size()==0 ||  assert_function_info.is_assert_function(&F)){
+                    insertLogger(I);
+                    modified = true;
+		}else {
+		    llvm::dbgs()<<"InsertLogger skipped function:"<<F.getName()<<" because it is not in the assert list!\n";
+		}
             }
         }
     }
@@ -293,6 +300,7 @@ static llvm::RegisterPass<ObliviousHashInsertionPass> X("oh-insert","Instruments
 
 static void registerPathsAnalysisPass(const llvm::PassManagerBuilder &,
                          	      llvm::legacy::PassManagerBase &PM) {
+
   PM.add(new ObliviousHashInsertionPass());
 }
 
