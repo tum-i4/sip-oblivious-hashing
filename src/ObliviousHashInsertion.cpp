@@ -125,6 +125,34 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I) {
       insertHash(I, bin, false);
     }
   }
+  if (llvm::CallInst::classof(&I)) {
+    auto *call = llvm::dyn_cast<llvm::CallInst>(&I);
+    auto called_function = call->getCalledFunction();
+    if (called_function == nullptr || called_function->isIntrinsic() ||
+        called_function == hashFunc1 || called_function == hashFunc2) {
+	return false;
+    }
+    llvm::dbgs()<<"Processing call instruction..\n";
+    call->print(llvm::dbgs(),true);
+    llvm::dbgs()<<"\n";
+    for (int i=0;i<call->getNumArgOperands();++i){
+      if(llvm::ConstantInt::classof(call->getArgOperand(i))){
+	auto *operand = llvm::dyn_cast<llvm::ConstantInt>(call->getArgOperand(i));
+	llvm::dbgs()<<"***Handling a call instruction***\n";
+	insertHash(I, operand, true);
+      } else if (llvm::LoadInst::classof(call->getArgOperand(i))) {
+        auto *load = llvm::dyn_cast<llvm::Instruction>(call->getArgOperand(i));
+        instrumentInst(*load);
+      } else {
+	llvm::dbgs()<<"Can't handle this operand ";
+        call->getArgOperand(i)->print(llvm::dbgs(),true);
+        llvm::dbgs()<<" of the call ";
+        call->print(llvm::dbgs(),true);
+        llvm::dbgs()<<"\n";
+	
+      }
+    }
+  }
   /*if (llvm::AtomicRMWInst::classof(&I)) {
       auto *armw = llvm::dyn_cast<llvm::AtomicRMWInst>(&I);
       llvm::dbgs() << "rmw: ";
@@ -253,6 +281,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
     if (F.isDeclaration() || F.isIntrinsic()) {
       continue;
     }
+    llvm::dbgs()<<" Processing function:"<<F.getName()<<"\n";
     // no hashes for functions called from non deterministc blocks
     if (!function_calls.is_function_input_independent(&F)) {
       continue;
@@ -274,9 +303,20 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
           }
         }
         if (input_dependency_info.isInputDependent(&I)) {
-          // llvm::dbgs() << "D: " << I << "\n";
+           /*if (auto callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
+		llvm::dbgs()<<"Input dependent call instruction: ";
+		callInst->print(llvm::dbgs(),true);
+                llvm::dbgs()<<"\n";
+           }*/
+           //llvm::dbgs() << "D: " << I << "\n";
         } else {
           // llvm::dbgs() << "I: " << I << "\n";
+	   /*if (auto callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
+		llvm::dbgs()<<"Input independent call instruction: ";
+		callInst->print(llvm::dbgs(),true);
+                llvm::dbgs()<<"\n";
+           }*/
+
           instrumentInst(I);
           modified = true;
         }
