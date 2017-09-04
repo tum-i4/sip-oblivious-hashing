@@ -13,11 +13,11 @@ class LLVMContext;
 
 namespace oh {
 
-class AssertionInsertionPass : public llvm::ModulePass {
+class AssertionFinalizePass : public llvm::ModulePass {
 public:
   static char ID;
 
-  AssertionInsertionPass() : llvm::ModulePass(ID) {}
+  AssertionFinalizePass() : llvm::ModulePass(ID) {}
 
 public:
   bool runOnModule(llvm::Module &M) override;
@@ -30,6 +30,6 @@ private:
 private:
   using hash_value_set = std::unordered_set<uint64_t>;
   std::vector<hash_value_set> hashes;
-  llvm::Constant *assert;
+  llvm::Function *assert;
 };
 }

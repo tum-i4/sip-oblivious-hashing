@@ -10,25 +10,19 @@ class BasicBlock;
 
 namespace oh {
 
-class NonDeterministicBasicBlocksAnalysis : public llvm::ModulePass
-{
+class NonDeterministicBasicBlocksAnalysis : public llvm::ModulePass {
 public:
-    static char ID;
+  static char ID;
 
-    NonDeterministicBasicBlocksAnalysis()
-        : llvm::ModulePass(ID)
-    {
-    }
+  NonDeterministicBasicBlocksAnalysis() : llvm::ModulePass(ID) {}
 
-    bool runOnModule(llvm::Module& M) override;
-    virtual void getAnalysisUsage(llvm::AnalysisUsage& AU) const override;
+  bool runOnModule(llvm::Module &M) override;
+  virtual void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
 
 public:
-    bool is_block_nondeterministic(llvm::BasicBlock* B) const;
+  bool is_block_nondeterministic(llvm::BasicBlock *B) const;
 
 public:
-    std::unordered_set<llvm::BasicBlock*> non_deterministic_blocks;
+  std::unordered_set<llvm::BasicBlock *> non_deterministic_blocks;
 };
-
 }
-

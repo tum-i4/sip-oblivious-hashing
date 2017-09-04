@@ -13,81 +13,71 @@ class Module;
 
 namespace oh {
 
-class FunctionDominanceTree
-{
+class FunctionDominanceTree {
 public:
-    class DomNode;
-    using DomNodeT = std::shared_ptr<DomNode>;
+  class DomNode;
+  using DomNodeT = std::shared_ptr<DomNode>;
 
-    class DomNode
-    {
-    public:
-        using Dominators = std::unordered_set<DomNodeT>;
+  class DomNode {
+  public:
+    using Dominators = std::unordered_set<DomNodeT>;
 
-    public:
-        DomNode(llvm::Function* f);
+  public:
+    DomNode(llvm::Function *f);
 
-    public:
-        void add_dominator(DomNodeT dom);
-        bool postdominates(DomNodeT dom) const;
+  public:
+    void add_dominator(DomNodeT dom);
+    bool postdominates(DomNodeT dom) const;
 
-        Dominators& get_dominators();
-        const Dominators& get_dominators() const;
-        llvm::Function* get_function();
-
-        void dump() const;
-
-    private:
-        llvm::Function* function;
-        //  functions calling current function
-        Dominators dominators;
-    };
-
-public:
-    FunctionDominanceTree() = default;
-
-    FunctionDominanceTree(const FunctionDominanceTree&) = delete;
-    FunctionDominanceTree& operator =(const FunctionDominanceTree&) = delete;
-
-public:
-    void add_function(llvm::Function*, DomNodeT doms);
-    DomNodeT get_or_create_function_dominance_node(llvm::Function* f);
-    void add_function_dominator(llvm::Function* f, DomNodeT domNode);
-    DomNodeT get_function_dominators(llvm::Function* f);
-    const DomNodeT get_function_dominators(llvm::Function* f) const;
+    Dominators &get_dominators();
+    const Dominators &get_dominators() const;
+    llvm::Function *get_function();
 
     void dump() const;
 
-private:
-    std::unordered_map<llvm::Function*, DomNodeT> function_dominators;
-};
-
-
-class FunctionDominanceTreePass : public llvm::ModulePass
-{
-public:
-    static char ID;
-
-    FunctionDominanceTreePass();
+  private:
+    llvm::Function *function;
+    //  functions calling current function
+    Dominators dominators;
+  };
 
 public:
-    void getAnalysisUsage(llvm::AnalysisUsage& AU) const override;
-    bool runOnModule(llvm::Module& M) override;
+  FunctionDominanceTree() = default;
+
+  FunctionDominanceTree(const FunctionDominanceTree &) = delete;
+  FunctionDominanceTree &operator=(const FunctionDominanceTree &) = delete;
 
 public:
-    const FunctionDominanceTree& get_dominance_tree() const
-    {
-        return dominance_tree;
-    }
+  void add_function(llvm::Function *, DomNodeT doms);
+  DomNodeT get_or_create_function_dominance_node(llvm::Function *f);
+  void add_function_dominator(llvm::Function *f, DomNodeT domNode);
+  DomNodeT get_function_dominators(llvm::Function *f);
+  const DomNodeT get_function_dominators(llvm::Function *f) const;
 
-    FunctionDominanceTree& get_dominance_tree()
-    {
-        return dominance_tree;
-    }
+  void dump() const;
 
 private:
-    FunctionDominanceTree dominance_tree;
+  std::unordered_map<llvm::Function *, DomNodeT> function_dominators;
 };
 
+class FunctionDominanceTreePass : public llvm::ModulePass {
+public:
+  static char ID;
+
+  FunctionDominanceTreePass();
+
+public:
+  void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
+  bool runOnModule(llvm::Module &M) override;
+
+public:
+  const FunctionDominanceTree &get_dominance_tree() const {
+    return dominance_tree;
+  }
+
+  FunctionDominanceTree &get_dominance_tree() { return dominance_tree; }
+
+private:
+  FunctionDominanceTree dominance_tree;
+};
 }
-

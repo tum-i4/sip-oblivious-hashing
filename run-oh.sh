@@ -34,14 +34,25 @@ llvm-link-3.9 out.bc $OH_PATH/hashes/hash.bc -o out.bc
 llvm-link-3.9 out.bc $OH_PATH/assertions/asserts.bc -o out.bc
 llvm-link-3.9 out.bc $OH_PATH/assertions/logs.bc -o out.bc
 
-# precompute hashes
+# intermediate precompute hashes
 clang++-3.9 -lncurses -rdynamic -std=c++0x out.bc -o out
 ./out $input
 ###rm out
 #
 
 # Running assertion insertion pass
+rm hashes_dumper.log
 opt-3.9 -load $INPUT_DEP_PATH/libInputDependency.so -load $OH_LIB/liboblivious-hashing.so out.bc -insert-asserts -o protected.bc
+
+# final hash computation
+clang++-3.9 -lncurses -rdynamic -std=c++0x protected.bc -o protected
+./protected $input
+
+
+#Runnig assertion finalization pass
+opt-3.9 -load $INPUT_DEP_PATH/libInputDependency.so -load $OH_LIB/liboblivious-hashing.so protected.bc -insert-asserts-finalize -o protected.bc
 # Compiling to final protected binary
 clang++-3.9 -lncurses -rdynamic -std=c++0x protected.bc -o protected
+./protected $input
+
 
