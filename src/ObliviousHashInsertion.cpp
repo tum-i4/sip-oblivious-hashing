@@ -4,7 +4,6 @@
 #include "Utils.h"
 #include "input-dependency/InputDependencyAnalysis.h"
 #include "input-dependency/InputDependentFunctions.h"
-
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Function.h"
@@ -12,17 +11,17 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
-
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
-
 #include <assert.h>
 #include <cstdlib>
 #include <ctime>
+
+using namespace llvm;
 
 namespace oh {
 
@@ -48,9 +47,10 @@ void ObliviousHashInsertionPass::getAnalysisUsage(
 
 void ObliviousHashInsertionPass::insertHash(llvm::Instruction &I,
                                             llvm::Value *v, bool before) {
-  if (v->getType()->isPointerTy()) {
+  //#7 requires to hash pointer operand of a StoreInst
+  /*if (v->getType()->isPointerTy()) {
     return;
-  }
+  }*/
   llvm::LLVMContext &Ctx = I.getModule()->getContext();
   llvm::IRBuilder<> builder(&I);
   if (before)
@@ -64,13 +64,36 @@ bool ObliviousHashInsertionPass::insertHashBuilder(llvm::IRBuilder<> &builder,
                                                    llvm::Value *v) {
   llvm::LLVMContext &Ctx = builder.getContext();
   llvm::Value *cast;
+  llvm::Value *load;
+  if (v->getType()->isPointerTy()){
+     llvm::Type *ptrType = v->getType()->getPointerElementType();
+     ptrType->print(dbgs(),true);
+     dbgs()<<"\n";
+     if (!ptrType->isIntegerTy()){
+        dbgs()<<"Non integer pointers are skipped:";
+        v->print(dbgs(),true);
+        ptrType->print(dbgs(),true);
+        dbgs()<<"\n";
+        return false;
+     }
+     load = builder.CreateLoad(v);
+     llvm::dbgs()<<"creating load for pointer ";
+     v->print(llvm::dbgs(),true);
+     llvm::dbgs()<<"\n";
+  } else {
+     load = v;
+  }
+  
 
-  if (v->getType()->isIntegerTy())
-    cast = builder.CreateZExtOrBitCast(v, llvm::Type::getInt64Ty(Ctx));
-  else if (v->getType()->isPtrOrPtrVectorTy())
-    return false;
-  else if (v->getType()->isFloatingPointTy())
-    cast = builder.CreateFPToSI(v, llvm::Type::getInt64Ty(Ctx));
+
+  if (load->getType()->isIntegerTy())
+    cast = builder.CreateZExtOrBitCast(load, llvm::Type::getInt64Ty(Ctx));
+  else if (load->getType()->isPtrOrPtrVectorTy()){
+    //This should never happen, pointer to pointer should not reach here
+    assert(false);
+  }
+  else if (load->getType()->isFloatingPointTy())
+    cast = builder.CreateFPToSI(load, llvm::Type::getInt64Ty(Ctx));
   else
     assert(false);
 
@@ -117,7 +140,8 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I) {
   }
   if (llvm::StoreInst::classof(&I)) {
     auto *store = llvm::dyn_cast<llvm::StoreInst>(&I);
-    insertHash(I, store->getValueOperand(), false);
+    llvm::Value *v = store->getPointerOperand();
+    insertHash(I, v, false);
   }
   if (llvm::BinaryOperator::classof(&I)) {
     auto *bin = llvm::dyn_cast<llvm::BinaryOperator>(&I);
@@ -139,7 +163,7 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I) {
       if(llvm::ConstantInt::classof(call->getArgOperand(i))){
 	auto *operand = llvm::dyn_cast<llvm::ConstantInt>(call->getArgOperand(i));
 	llvm::dbgs()<<"***Handling a call instruction***\n";
-	insertHash(I, operand, true);
+	insertHash(I, operand, false);
       } else if (llvm::LoadInst::classof(call->getArgOperand(i))) {
         auto *load = llvm::dyn_cast<llvm::Instruction>(call->getArgOperand(i));
         instrumentInst(*load);

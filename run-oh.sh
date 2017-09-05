@@ -8,6 +8,8 @@ if [ $# -eq 0 ]
 fi
 
 
+make -C build/
+
 INPUT_DEP_PATH=/usr/local/lib/
 OH_PATH=/home/sip/sip-oblivious-hashing
 OH_LIB=$OH_PATH/build/lib
