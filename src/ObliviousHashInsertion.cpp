@@ -27,7 +27,7 @@
 #include <boost/algorithm/string/classification.hpp> // Include boost::for is_any_of
 #include <boost/algorithm/string/split.hpp> // Include for boost::split
 using namespace llvm;
-
+using namespace std;
 namespace oh {
 
 namespace {
@@ -239,21 +239,38 @@ void ObliviousHashInsertionPass::insertLogger(llvm::Instruction &I) {
     insertLogger(builder, I, random_hash_idx);
   }
 }
-
+int assertCnt = 1;
 void ObliviousHashInsertionPass::insertLogger(llvm::IRBuilder<> &builder,
                                               llvm::Instruction &instr,
                                               unsigned hashToLogIdx) {
-  builder.SetInsertPoint(instr.getParent(), builder.GetInsertPoint());
-  llvm::LLVMContext &Ctx = builder.getContext();
 
-  std::vector<llvm::Value *> arg_values;
-  unsigned id = unique_id_generator::get().next();
+  llvm::LLVMContext &Ctx = builder.getContext();
+  builder.SetInsertPoint(instr.getParent(), builder.GetInsertPoint());
+
+    ConstantInt *const_int = (ConstantInt *)ConstantInt::get(
+        Type::getInt64Ty(Ctx), APInt(64, (assertCnt)*1000000000000));
+    vector<Value *> values = {hashPtrs.at(hashToLogIdx), const_int};
+    ArrayRef<Value *> args(values);
+    //CallInst *assertI = CallInst::Create(logger, args);
+    /*if (after) {
+      assertI->insertAfter(instr);
+    } else {
+      assertI->insertBefore(instr);
+    }*/
+
+assertCnt++;
+
+
+
+
+ // std::vector<llvm::Value *> arg_values;
+  //unsigned id = unique_id_generator::get().next();
   // llvm::dbgs() << "ID  " << id << " for instruction " << instr << "\n";
-  llvm::Value *id_value =
-      llvm::ConstantInt::get(llvm::Type::getInt32Ty(Ctx), id);
-  arg_values.push_back(id_value);
-  arg_values.push_back(hashPtrs.at(hashToLogIdx));
-  llvm::ArrayRef<llvm::Value *> args(arg_values);
+ // llvm::Value *id_value =
+   //   llvm::ConstantInt::get(llvm::Type::getInt64Ty(Ctx), 1000000000000);
+  //arg_values.push_back(hashPtrs.at(hashToLogIdx));
+  //arg_values.push_back(id_value);
+  //llvm::ArrayRef<llvm::Value *> args(arg_values);
   builder.CreateCall(logger, args);
 }
 
@@ -283,11 +300,15 @@ void ObliviousHashInsertionPass::setup_functions(llvm::Module &M) {
 
   // arguments of logger are line and column number of instruction and hash
   // variable to log
-  llvm::ArrayRef<llvm::Type *> logger_params{llvm::Type::getInt32Ty(Ctx),
-                                             llvm::Type::getInt64PtrTy(Ctx)};
+  /*llvm::ArrayRef<llvm::Type *> logger_params{llvm::Type::getInt64PtrTy(Ctx), llvm::Type::getInt64Ty(Ctx), NULL};
   llvm::FunctionType *logger_type =
       llvm::FunctionType::get(llvm::Type::getVoidTy(Ctx), logger_params, false);
-  logger = M.getOrInsertFunction("oh_log", logger_type);
+  logger = M.getOrInsertFunction("assert", logger_type);
+  */
+    logger = cast<Function>(
+        M.getOrInsertFunction("assert", Type::getVoidTy(M.getContext()),
+                              Type::getInt64PtrTy(M.getContext()),
+                              Type::getInt64Ty(M.getContext()), NULL));
 }
 
 void ObliviousHashInsertionPass::setup_hash_values(llvm::Module &M) {
@@ -343,7 +364,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
         }
         if (auto callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
           auto calledF = callInst->getCalledFunction();
-          if (calledF && calledF->getName() == "oh_log") {
+          if (calledF && calledF->getName() == "assert") {
             continue;
           }
         }
