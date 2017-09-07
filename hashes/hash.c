@@ -18,6 +18,7 @@ void hash2(uint64_t *hashVar, uint64_t value) {
       *hashVar ^= high >> 56;
     *hashVar &= ~high;
   }
+  printf("hash2:%lu\n",value);
   //printf("H2: %lu\n", *hashVar);
 }
 
@@ -31,5 +32,6 @@ void hash1(uint64_t *hashVar, uint64_t value) {
     *hashVar ^= highorder >> 59;
     *hashVar ^= key[i];
   }
+  printf("hash1:%lu\n",value);
   //printf("H1: %lu\n", *hashVar);
 }

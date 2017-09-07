@@ -52,6 +52,10 @@ void AssertionFinalizePass::parse_hashes() {
   hashes.resize(100000);
   std::ifstream hash_strm;
   hash_strm.open("hashes_dumper.log");
+  if(!hash_strm.good()){
+    llvm::errs()<<"ERR. hashes_dumper.log cannot be found!\n";
+    exit(1);
+  }
   std::string id_str;
   std::string hash_str;
   while (!hash_strm.eof()) {
@@ -81,6 +85,9 @@ void AssertionFinalizePass::setup_assert_function(llvm::Module &M) {
 
 void AssertionFinalizePass::process_log_call(llvm::CallInst *log_call) {
 
+  llvm::dbgs()<<"Processing an oh_assert_dumper call:";
+  log_call->print(llvm::dbgs(),true);
+  llvm::dbgs()<<"\n";
   const unsigned log_id = unique_id_generator::get().next();
   const auto &precomputed_hashes = hashes[log_id];
   if (precomputed_hashes.empty()) {

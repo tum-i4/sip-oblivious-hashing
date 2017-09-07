@@ -25,8 +25,10 @@ private:
   void insertLogger(llvm::IRBuilder<> &builder, llvm::Instruction &I,
                     unsigned hashToLogIdx);
   void end_logging(llvm::Instruction &I);
-
+  void parse_skip_tags();
 private:
+  bool hasTagsToSkip;
+  std::vector<std::string> skipTags;
   llvm::Constant *hashFunc1;
   llvm::Constant *hashFunc2;
   llvm::Constant *logger;

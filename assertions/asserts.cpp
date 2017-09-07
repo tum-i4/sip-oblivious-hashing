@@ -72,7 +72,7 @@ extern "C" {
 			//if (hash == 272) {
 			//    return;
 			//}
-			std::cout << "Fail: " << *hashVar << " != " << hash << "\n";
+			std::cout << "Fail for hashID:"<<id << " computed: " << *hashVar << " != last expected " << hash << "\n";
 			abort();
 		}
 

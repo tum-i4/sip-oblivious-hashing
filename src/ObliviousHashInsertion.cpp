@@ -20,13 +20,17 @@
 #include <assert.h>
 #include <cstdlib>
 #include <ctime>
-
+#include <string>
+#include <sstream>
+#include <vector>
+#include <iterator>
+#include <boost/algorithm/string/classification.hpp> // Include boost::for is_any_of
+#include <boost/algorithm/string/split.hpp> // Include for boost::split
 using namespace llvm;
 
 namespace oh {
 
 namespace {
-
 unsigned get_random(unsigned range) { return rand() % range; }
 }
 
@@ -34,6 +38,13 @@ char ObliviousHashInsertionPass::ID = 0;
 static llvm::cl::opt<unsigned>
     num_hash("num-hash", llvm::cl::desc("Specify number of hash values to use"),
              llvm::cl::value_desc("num_hash"));
+
+static llvm::cl::opt<std::string> SkipTaggedInstructions(
+    "skip",
+    llvm::cl::desc("Specify comma separated tagged instructios (metadata) to be skipped by the OH pass"),
+    llvm::cl::value_desc("skip"));
+
+
 
 void ObliviousHashInsertionPass::getAnalysisUsage(
     llvm::AnalysisUsage &AU) const {
@@ -106,7 +117,16 @@ bool ObliviousHashInsertionPass::insertHashBuilder(llvm::IRBuilder<> &builder,
   builder.CreateCall(get_random(2) ? hashFunc1 : hashFunc2, args);
   return true;
 }
-
+void ObliviousHashInsertionPass::parse_skip_tags(){
+ if(!SkipTaggedInstructions.empty()){
+   boost::split(skipTags, SkipTaggedInstructions, boost::is_any_of(","), boost::token_compress_on);
+   hasTagsToSkip = true;
+   llvm::dbgs()<<"Noted "<<SkipTaggedInstructions<<" as instruction tag(s) to skip\n";
+   } else {
+   llvm::dbgs()<<"No tags were supplied to be skipped! \n";
+   hasTagsToSkip = false;
+ }
+}
 bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I) {
   if (llvm::CmpInst::classof(&I)) {
     auto *cmp = llvm::dyn_cast<llvm::CmpInst>(&I);
@@ -138,18 +158,18 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I) {
     auto *load = llvm::dyn_cast<llvm::LoadInst>(&I);
     insertHash(I, load, false);
   }
-  if (llvm::StoreInst::classof(&I)) {
+/*  if (llvm::StoreInst::classof(&I)) {
     auto *store = llvm::dyn_cast<llvm::StoreInst>(&I);
     llvm::Value *v = store->getPointerOperand();
     insertHash(I, v, false);
-  }
+  }*/
   if (llvm::BinaryOperator::classof(&I)) {
     auto *bin = llvm::dyn_cast<llvm::BinaryOperator>(&I);
     if (bin->getOpcode() == llvm::Instruction::Add) {
       insertHash(I, bin, false);
     }
   }
-  if (llvm::CallInst::classof(&I)) {
+/*  if (llvm::CallInst::classof(&I)) {
     auto *call = llvm::dyn_cast<llvm::CallInst>(&I);
     auto called_function = call->getCalledFunction();
     if (called_function == nullptr || called_function->isIntrinsic() ||
@@ -176,7 +196,7 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I) {
 	
       }
     }
-  }
+  }*/
   /*if (llvm::AtomicRMWInst::classof(&I)) {
       auto *armw = llvm::dyn_cast<llvm::AtomicRMWInst>(&I);
       llvm::dbgs() << "rmw: ";
@@ -281,6 +301,7 @@ void ObliviousHashInsertionPass::setup_hash_values(llvm::Module &M) {
 }
 
 bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
+  parse_skip_tags();
   llvm::dbgs() << "Insert hash computation\n";
   bool modified = false;
   unique_id_generator::get().reset();
@@ -340,6 +361,19 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
 		callInst->print(llvm::dbgs(),true);
                 llvm::dbgs()<<"\n";
            }*/
+          //skip instrumenting instructions whose tag matches the skip tag list 
+          if(this->hasTagsToSkip && I.hasMetadataOtherThanDebugLoc()){
+            llvm::dbgs()<<"Found instruction with tags ad we have set tags\n";
+            for(auto tag: skipTags){
+              llvm::dbgs()<<tag<<"\n";
+              if (auto *metadata = I.getMetadata(tag)) {
+                llvm::dbgs()<<"Skipping tagged instruction: ";
+                I.print(llvm::dbgs(),true);
+                llvm::dbgs()<<"\n";
+                continue;
+              }
+            }
+          }
 
           instrumentInst(I);
           modified = true;

@@ -1,5 +1,5 @@
 #!/bin/bash
-
+make -C build/
 
 if [ $# -eq 0 ]
   then
@@ -7,8 +7,6 @@ if [ $# -eq 0 ]
     exit 1
 fi
 
-
-make -C build/
 
 INPUT_DEP_PATH=/usr/local/lib/
 OH_PATH=/home/sip/sip-oblivious-hashing
@@ -26,10 +24,10 @@ clang++-3.9 $OH_PATH/assertions/logs.cpp -fno-use-cxa-atexit -std=c++0x -c -emit
 if [ $# -eq 2 ] 
   then
     echo "Assert file list is supplied"
-    opt-3.9 -load $INPUT_DEP_PATH/libInputDependency.so -load  $OH_LIB/liboblivious-hashing.so $bitcode -oh-insert -num-hash 1 -assert-functions $assert_list -o out.bc
+    opt-3.9 -load $INPUT_DEP_PATH/libInputDependency.so -load  $OH_LIB/liboblivious-hashing.so $bitcode -oh-insert -num-hash 1 -skip 'hash' -assert-functions $assert_list -o out.bc
 else
     echo "No assert file is supplied.."
-    opt-3.9 -load $INPUT_DEP_PATH/libInputDependency.so -load  $OH_LIB/liboblivious-hashing.so $bitcode -oh-insert -num-hash 1 -o out.bc
+    opt-3.9 -load $INPUT_DEP_PATH/libInputDependency.so -load  $OH_LIB/liboblivious-hashing.so $bitcode -oh-insert -num-hash 1 -skip 'hash' -o out.bc
 fi
 # Linking with external libraries
 llvm-link-3.9 out.bc $OH_PATH/hashes/hash.bc -o out.bc
