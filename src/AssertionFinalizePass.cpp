@@ -52,8 +52,8 @@ void AssertionFinalizePass::parse_hashes() {
   hashes.resize(100000);
   std::ifstream hash_strm;
   hash_strm.open("hashes_dumper.log");
-  if(!hash_strm.good()){
-    llvm::errs()<<"ERR. hashes_dumper.log cannot be found!\n";
+  if (!hash_strm.good()) {
+    llvm::errs() << "ERR. hashes_dumper.log cannot be found!\n";
     exit(1);
   }
   std::string id_str;
@@ -85,9 +85,9 @@ void AssertionFinalizePass::setup_assert_function(llvm::Module &M) {
 
 void AssertionFinalizePass::process_log_call(llvm::CallInst *log_call) {
 
-  llvm::dbgs()<<"Processing an oh_assert_dumper call:";
-  log_call->print(llvm::dbgs(),true);
-  llvm::dbgs()<<"\n";
+  llvm::dbgs() << "Processing an oh_assert_dumper call:";
+  log_call->print(llvm::dbgs(), true);
+  llvm::dbgs() << "\n";
   const unsigned log_id = unique_id_generator::get().next();
   const auto &precomputed_hashes = hashes[log_id];
   if (precomputed_hashes.empty()) {
@@ -113,7 +113,7 @@ void AssertionFinalizePass::process_log_call(llvm::CallInst *log_call) {
   log_call->setCalledFunction(assert->getFunctionType(), assert);
   // if(log_call->getNumArgOperand()!=arg_values.size()){
   //	llvm::errs()<<"Err. The number of the operands between two patch passes
-  //do not match\n";
+  // do not match\n";
   //      exit(1);
   //}
   if (arg_values.size() != log_call->getNumArgOperands()) {
@@ -136,7 +136,7 @@ void AssertionFinalizePass::process_log_call(llvm::CallInst *log_call) {
     exit(1);
   }
   for (unsigned i = 0; i < arg_values.size(); i++) {
-      log_call->setArgOperand(i, arg_values[i]);
+    log_call->setArgOperand(i, arg_values[i]);
   }
   // builder.CreateCall(assert, arg_values);
 }

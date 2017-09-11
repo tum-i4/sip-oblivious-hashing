@@ -60,8 +60,8 @@ void AssertionInsertionPass::parse_hashes() {
   hashes.resize(100000);
   std::ifstream hash_strm;
   hash_strm.open("hashes.log");
-  if(!hash_strm.good()){
-    llvm::errs()<<"ERR. hashes.log file cannot be found!\n";
+  if (!hash_strm.good()) {
+    llvm::errs() << "ERR. hashes.log file cannot be found!\n";
     exit(1);
   }
   std::string id_str;

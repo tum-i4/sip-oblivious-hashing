@@ -26,6 +26,7 @@ private:
                     unsigned hashToLogIdx);
   void end_logging(llvm::Instruction &I);
   void parse_skip_tags();
+
 private:
   bool hasTagsToSkip;
   std::vector<std::string> skipTags;
