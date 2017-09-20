@@ -1,5 +1,5 @@
 #include "ObliviousHashInsertion.h"
-#include "AssertFunctionMarkPass.h"
+//#include "AssertFunctionMarkPass.h"
 #include "NonDeterministicBasicBlocksAnalysis.h"
 #include "Utils.h"
 #include "input-dependency/InputDependencyAnalysis.h"
@@ -26,6 +26,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../../self-checksumming/src/FunctionMarker.h"
 using namespace llvm;
 using namespace std;
 namespace oh {
@@ -51,7 +52,7 @@ void ObliviousHashInsertionPass::getAnalysisUsage(
   AU.addRequired<input_dependency::InputDependentFunctionsPass>();
   AU.addRequired<NonDeterministicBasicBlocksAnalysis>();
   AU.addRequired<llvm::LoopInfoWrapperPass>();
-  AU.addRequired<AssertFunctionMarkPass>();
+  AU.addRequired<FunctionMarkerPass>();
 }
 
 void ObliviousHashInsertionPass::insertHash(llvm::Instruction &I,
@@ -330,8 +331,10 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
       getAnalysis<input_dependency::InputDependentFunctionsPass>();
   const auto &non_det_blocks =
       getAnalysis<NonDeterministicBasicBlocksAnalysis>();
-  const auto &assert_function_info =
-      getAnalysis<AssertFunctionMarkPass>().get_assert_functions_info();
+  //const auto &assert_function_info =
+  //    getAnalysis<AssertFunctionMarkPass>().get_assert_functions_info();
+  const auto &function_info = getAnalysis<FunctionMarkerPass>().get_functions_info();
+  llvm::dbgs() << "Recieved marked functions "<<function_info->get_functions().size()<<"\n";
   // Get the function to call from our runtime library.
   setup_functions(M);
   // Insert Globals
@@ -406,7 +409,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
         // Filter assert functions, unless there is no assert function
         // specified,
         // in which case all functions are good to go
-        if (assert_function_info.get_assert_functions().size() == 0 ||
+        /*if (assert_function_info.get_assert_functions().size() == 0 ||
             !assert_function_info.is_assert_function(&F)) {
           insertLogger(I);
           llvm::dbgs() << "InsertLogger included function:" << F.getName()
@@ -416,7 +419,19 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
         } else {
           llvm::dbgs() << "InsertLogger skipped function:" << F.getName()
                        << " because it is in the skip assert list!\n";
+        }*/
+        if (function_info->get_functions().size() == 0 ||
+            !function_info->is_function(&F)) {
+          insertLogger(I);
+          llvm::dbgs() << "InsertLogger included function:" << F.getName()
+                       << " because it is not in the skip  assert list!\n";
+
+          modified = true;
+        } else {
+          llvm::dbgs() << "InsertLogger skipped function:" << F.getName()
+                       << " because it is in the skip assert list!\n";
         }
+
       }
     }
   }
