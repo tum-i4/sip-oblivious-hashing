@@ -67,6 +67,9 @@ void ObliviousHashInsertionPass::insertHash(llvm::Instruction &I,
     builder.SetInsertPoint(I.getParent(), builder.GetInsertPoint());
   else
     builder.SetInsertPoint(I.getParent(), ++builder.GetInsertPoint());
+  //dbgs()<<"Instruction to instrument:";
+  //I.print(dbgs(),true);
+  //dbgs()<<"\n";
   insertHashBuilder(builder, v);
 }
 
@@ -77,39 +80,47 @@ bool ObliviousHashInsertionPass::insertHashBuilder(llvm::IRBuilder<> &builder,
   llvm::Value *load;
   if (v->getType()->isPointerTy()) {
     llvm::Type *ptrType = v->getType()->getPointerElementType();
-    ptrType->print(dbgs(), true);
-    dbgs() << "\n";
-    if (!ptrType->isIntegerTy()) {
-      dbgs() << "Non integer pointers are skipped:";
+    //ptrType->print(dbgs(), true);
+    //dbgs() << "\n";
+    if (!ptrType->isIntegerTy() && !ptrType->isFloatingPointTy()) {
+      //Currently we only handle int and float pointers
+      dbgs() << "Non numeric pointers (int and float) are skipped:";
       v->print(dbgs(), true);
       ptrType->print(dbgs(), true);
       dbgs() << "\n";
       return false;
     }
     load = builder.CreateLoad(v);
-    llvm::dbgs() << "creating load for pointer ";
-    v->print(llvm::dbgs(), true);
-    llvm::dbgs() << "\n";
+    //llvm::dbgs() << "creating load for pointer ";
+    //v->print(llvm::dbgs(), true);
+    //llvm::dbgs() << "\n";
   } else {
     load = v;
   }
 
   if (load->getType()->isIntegerTy())
     cast = builder.CreateZExtOrBitCast(load, llvm::Type::getInt64Ty(Ctx));
-  else if (load->getType()->isPtrOrPtrVectorTy()) {
+  /*else if (load->getType()->isPtrOrPtrVectorTy()) {
     // This should never happen, pointer to pointer should not reach here
+    dbgs()<<"ERR.  insertHashBuilder\n";
     assert(false);
-  } else if (load->getType()->isFloatingPointTy())
+  } */else if (load->getType()->isFloatingPointTy())
     cast = builder.CreateFPToSI(load, llvm::Type::getInt64Ty(Ctx));
   else
-    assert(false);
-
+  {
+    dbgs()<<"\nERR. Any value other than int and float is passed to insertHashBuilder\n";
+    load->getType()->print(dbgs(), true);
+    dbgs()<<"\n";
+    return false;//assert(false);
+  }
   std::vector<llvm::Value *> arg_values;
   unsigned index = get_random(num_hash);
   usedHashIndices.push_back(index);
   arg_values.push_back(hashPtrs.at(index));
   arg_values.push_back(cast);
   llvm::ArrayRef<llvm::Value *> args(arg_values);
+ // cast->print(dbgs(),true);
+ // dbgs()<<"insertHashBuilder: Reached before the create Call\n";
   builder.CreateCall(get_random(2) ? hashFunc1 : hashFunc2, args);
   return true;
 }
@@ -423,8 +434,8 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
         if (function_info->get_functions().size() == 0 ||
             !function_info->is_function(&F)) {
           insertLogger(I);
-          llvm::dbgs() << "InsertLogger included function:" << F.getName()
-                       << " because it is not in the skip  assert list!\n";
+          //llvm::dbgs() << "InsertLogger included function:" << F.getName()
+          //             << " because it is not in the skip  assert list!\n";
 
           modified = true;
         } else {
@@ -435,6 +446,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
       }
     }
   }
+//  dbgs()<<"runOnModule is done\n";
   return modified;
 }
 
