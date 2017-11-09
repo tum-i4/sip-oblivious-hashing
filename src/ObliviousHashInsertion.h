@@ -3,7 +3,7 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/Pass.h"
-
+#include "Stats.h"
 namespace oh {
 
 class ObliviousHashInsertionPass : public llvm::ModulePass {
@@ -16,9 +16,10 @@ public:
   virtual void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
 
 private:
+  OHStats stats;
   void setup_functions(llvm::Module &M);
   void setup_hash_values(llvm::Module &M);
-  bool insertHashBuilder(llvm::IRBuilder<> &builder, llvm::Value *v);
+  bool insertHashBuilder(llvm::IRBuilder<> &builder, llvm::Value *v, bool isGuard);
   void insertHash(llvm::Instruction &I, llvm::Value *v, bool before);
   bool instrumentInst(llvm::Instruction &I);
   void insertLogger(llvm::Instruction &I);

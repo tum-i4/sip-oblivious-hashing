@@ -36,6 +36,12 @@ unsigned get_random(unsigned range) { return rand() % range; }
 }
 
 char ObliviousHashInsertionPass::ID = 0;
+const std::string GUARD_META_DATA = "guard"; 
+
+static cl::opt<std::string> DumpOHStat(
+		    "dump-oh-stat", cl::Hidden,
+		        cl::desc("File path to dump pass stat in Json format "));
+
 static llvm::cl::opt<unsigned>
     num_hash("num-hash", llvm::cl::desc("Specify number of hash values to use"),
              llvm::cl::value_desc("num_hash"));
@@ -67,14 +73,18 @@ void ObliviousHashInsertionPass::insertHash(llvm::Instruction &I,
     builder.SetInsertPoint(I.getParent(), builder.GetInsertPoint());
   else
     builder.SetInsertPoint(I.getParent(), ++builder.GetInsertPoint());
+  bool isGuard  = false;  
+  if (auto *metadata = I.getMetadata(GUARD_META_DATA)) {
+	  isGuard = true;
+  }
   //dbgs()<<"Instruction to instrument:";
   //I.print(dbgs(),true);
   //dbgs()<<"\n";
-  insertHashBuilder(builder, v);
+  insertHashBuilder(builder, v, isGuard);
 }
 
 bool ObliviousHashInsertionPass::insertHashBuilder(llvm::IRBuilder<> &builder,
-                                                   llvm::Value *v) {
+                                                   llvm::Value *v, bool isGuard) {
   llvm::LLVMContext &Ctx = builder.getContext();
   llvm::Value *cast;
   llvm::Value *load;
@@ -119,8 +129,11 @@ bool ObliviousHashInsertionPass::insertHashBuilder(llvm::IRBuilder<> &builder,
   arg_values.push_back(hashPtrs.at(index));
   arg_values.push_back(cast);
   llvm::ArrayRef<llvm::Value *> args(arg_values);
- // cast->print(dbgs(),true);
- // dbgs()<<"insertHashBuilder: Reached before the create Call\n";
+
+  //STATS: add the instruction  to stats
+  stats.addNumberOfHashCalls(1);
+  stats.addNumberOfProtectedInstructions(1);
+  if(isGuard) stats.addNumberOfProtectedGuardInstructions(1);
   builder.CreateCall(get_random(2) ? hashFunc1 : hashFunc2, args);
   return true;
 }
@@ -154,7 +167,11 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I) {
                 cmpExt, llvm::ConstantInt::get(llvm::Type::getInt8Ty(Ctx), 1))),
         llvm::ConstantInt::get(llvm::Type::getInt8Ty(Ctx),
                                cmp->getPredicate()));
-    insertHashBuilder(builder, val);
+  bool isGuard  = false;  
+  if (auto *metadata = I.getMetadata(GUARD_META_DATA)) {
+	  isGuard = true;
+  }
+    insertHashBuilder(builder, val, isGuard);
   }
   if (llvm::ReturnInst::classof(&I)) {
     auto *ret = llvm::dyn_cast<llvm::ReturnInst>(&I);
@@ -193,9 +210,30 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I) {
         auto *operand =
             llvm::dyn_cast<llvm::ConstantInt>(call->getArgOperand(i));
         llvm::dbgs() << "***Handling a call instruction***\n";
+	//insertHash which increments
+	//the number or protected instructions. 
+	//while this is just an argument of a call inst
+	//therefore, we subtract 1 to even out the result
+	stats.addNumberOfProtectedInstructions(-1);
+	stats.addNumberOfProtectedArguments(1);
+	if (auto *metadata = I.getMetadata(GUARD_META_DATA)) {
+		stats.addNumberOfProtectedGuardInstructions(-1);
+		stats.addNumberOfProtectedGuardArguments(1);
+	}
+
         insertHash(I, operand, false);
       } else if (llvm::LoadInst::classof(call->getArgOperand(i))) {
         auto *load = llvm::dyn_cast<llvm::Instruction>(call->getArgOperand(i));
+	//instrumentInst will call insertHash which increments
+	//the number or protected instructions. 
+	//while this is just an argument of a call inst
+	//therefore, we subtract 1 to even out the result
+	stats.addNumberOfProtectedInstructions(-1);
+	stats.addNumberOfProtectedArguments(1);
+	if (auto *metadata = I.getMetadata(GUARD_META_DATA)) {
+		stats.addNumberOfProtectedGuardInstructions(-1);
+		stats.addNumberOfProtectedGuardArguments(1);
+	}
         instrumentInst(*load);
       } else {
         llvm::dbgs() << "Can't handle this operand ";
@@ -277,6 +315,10 @@ void ObliviousHashInsertionPass::insertLogger(llvm::IRBuilder<> &builder,
   // arg_values.push_back(hashPtrs.at(hashToLogIdx));
   // arg_values.push_back(id_value);
   // llvm::ArrayRef<llvm::Value *> args(arg_values);
+ 
+  //Stats add the assert call
+  stats.addNumberOfAssertCalls(1);
+  
   builder.CreateCall(logger, args);
 }
 
@@ -319,6 +361,9 @@ void ObliviousHashInsertionPass::setup_functions(llvm::Module &M) {
 }
 
 void ObliviousHashInsertionPass::setup_hash_values(llvm::Module &M) {
+
+  stats.setNumberOfHashVariables(num_hash);
+
   llvm::LLVMContext &Ctx = M.getContext();
   for (int i = 0; i < num_hash; i++) {
     hashPtrs.push_back(new llvm::GlobalVariable(
@@ -445,6 +490,10 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
 
       }
     }
+  }
+  if(!DumpOHStat.empty()){
+    dbgs()<<"OH stats is requested, dumping stat file...\n";
+    stats.dumpJson(DumpOHStat);
   }
 //  dbgs()<<"runOnModule is done\n";
   return modified;

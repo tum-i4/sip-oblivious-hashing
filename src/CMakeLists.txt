@@ -3,7 +3,9 @@ add_library(oblivious-hashing MODULE
 	AssertionInsertionPass.cpp 
 	AssertionFinalizePass.cpp 
 	NonDeterministicBasicBlocksAnalysis.cpp
-	AssertFunctionMarkPass.cpp)
+	AssertFunctionMarkPass.cpp
+	Stats.cpp
+	)
 
 #Use C++ 11 to compile our pass(i.e., supply - std = c++ 11).
 target_compile_features(oblivious-hashing PRIVATE cxx_range_for cxx_auto_type)

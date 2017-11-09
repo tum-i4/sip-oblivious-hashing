@@ -1,5 +1,12 @@
 #!/bin/bash
 make -C build/
+if [ $? -eq 0 ]; then
+ echo 'OK Compile'
+else
+ echo 'FAIL Transform'
+ exit    
+fi 
+
 
 if [ $# -eq 0 ]
   then
@@ -25,12 +32,18 @@ clang-3.9 $OH_PATH/assertions/response.c -c -fno-use-cxa-atexit -emit-llvm -o $O
 if [ $# -eq 2 ] 
   then
     echo "Assert file list is supplied"
-    opt-3.9 -load $INPUT_DEP_PATH/libInputDependency.so -load $UTILS_PATH -load  $OH_LIB/liboblivious-hashing.so $bitcode -oh-insert -num-hash 1 -skip 'hash' -assert-functions $assert_list -o out.bc
+    opt-3.9 -load $INPUT_DEP_PATH/libInputDependency.so -load $UTILS_PATH -load  $OH_LIB/liboblivious-hashing.so $bitcode -oh-insert -num-hash 1 -skip 'hash' -dump-oh-stat="oh.stats" -assert-functions $assert_list -o out.bc
 else
     echo "No assert file is supplied.."
-    opt-3.9 -load $INPUT_DEP_PATH/libInputDependency.so -load $UTILS_PATH -load $OH_LIB/liboblivious-hashing.so $bitcode -oh-insert -num-hash 1 -skip 'hash' -o out.bc
+    opt-3.9 -load $INPUT_DEP_PATH/libInputDependency.so -load $UTILS_PATH -load $OH_LIB/liboblivious-hashing.so $bitcode -oh-insert -num-hash 1 -skip 'hash' -dump-oh-stat="oh.stats" -o out.bc
 fi
 
+if [ $? -eq 0 ]; then
+            echo 'OK Transform'
+else
+            echo 'FAIL Transform'
+            exit    
+fi 
 
 llc-3.9 out.bc
 gcc -c -rdynamic out.s -o out.o
@@ -47,4 +60,4 @@ gcc -g -rdynamic out.o response.o -o out
 
 #Patch using GDB
 python $OH_PATH/patcher/patchAsserts.py out out_patched 
-
+echo 'Generated bianry is out_patched ...'
