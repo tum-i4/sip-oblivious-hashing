@@ -18,6 +18,9 @@ result = subprocess.check_output(["gdb", orig_name, "-x", "/home/sip/sip-oblivio
 lines = result.splitlines()
 
 print result
+if "segmentation fault" in result.lower() or "bus error" in result.lower():
+    print "GDB patcher segmentation fault detected..."
+    exit(1)
 
 for line in lines:
 	print line

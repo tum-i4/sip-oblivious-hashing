@@ -27,6 +27,7 @@
 #include <string>
 #include <vector>
 #include "../../self-checksumming/src/FunctionMarker.h"
+#include "../../self-checksumming/src/FunctionFilter.h"
 using namespace llvm;
 using namespace std;
 namespace oh {
@@ -59,6 +60,7 @@ void ObliviousHashInsertionPass::getAnalysisUsage(
   AU.addRequired<NonDeterministicBasicBlocksAnalysis>();
   AU.addRequired<llvm::LoopInfoWrapperPass>();
   AU.addRequired<FunctionMarkerPass>();
+  AU.addRequired<FunctionFilterPass>();
 }
 
 void ObliviousHashInsertionPass::insertHash(llvm::Instruction &I,
@@ -391,6 +393,9 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
   //    getAnalysis<AssertFunctionMarkPass>().get_assert_functions_info();
   const auto &function_info = getAnalysis<FunctionMarkerPass>().get_functions_info();
   llvm::dbgs() << "Recieved marked functions "<<function_info->get_functions().size()<<"\n";
+  const auto &function_filter_info = getAnalysis<FunctionFilterPass>().get_functions_info();
+  llvm::dbgs() << "Recieved filter functions "<<function_filter_info->get_functions().size()<<"\n";
+  int countProcessedFuncs =0;
   // Get the function to call from our runtime library.
   setup_functions(M);
   // Insert Globals
@@ -400,8 +405,14 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
     // No input dependency info for declarations and instrinsics.
     if (F.isDeclaration() || F.isIntrinsic()) {
       continue;
-    }
+    } 
+    if (function_filter_info->get_functions().size() != 0 &&
+            !function_filter_info->is_function(&F)) {
+      llvm::dbgs() << " Skipping function per FilterFunctionPass:" << F.getName() << "\n";
+      continue;
+    }  
     llvm::dbgs() << " Processing function:" << F.getName() << "\n";
+    countProcessedFuncs++;
     // no hashes for functions called from non deterministc blocks
     if (!function_calls.is_function_input_independent(&F)) {
       continue;
@@ -494,6 +505,14 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
   if(!DumpOHStat.empty()){
     dbgs()<<"OH stats is requested, dumping stat file...\n";
     stats.dumpJson(DumpOHStat);
+  }
+
+
+  //Make sure OH only processed filter function list
+  if(countProcessedFuncs!=function_filter_info->get_functions().size() 
+		  && function_filter_info->get_functions().size()>0){
+    errs()<<"ERR. processed "<<countProcessedFuncs<<" function, while filter count is "<<function_filter_info->get_functions().size()<<"\n";
+    exit(1);
   }
 //  dbgs()<<"runOnModule is done\n";
   return modified;

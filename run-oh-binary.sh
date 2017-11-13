@@ -35,7 +35,8 @@ if [ $# -eq 2 ]
     opt-3.9 -load $INPUT_DEP_PATH/libInputDependency.so -load $UTILS_PATH -load  $OH_LIB/liboblivious-hashing.so $bitcode -oh-insert -num-hash 1 -skip 'hash' -dump-oh-stat="oh.stats" -assert-functions $assert_list -o out.bc
 else
     echo "No assert file is supplied.."
-    opt-3.9 -load $INPUT_DEP_PATH/libInputDependency.so -load $UTILS_PATH -load $OH_LIB/liboblivious-hashing.so $bitcode -oh-insert -num-hash 1 -skip 'hash' -dump-oh-stat="oh.stats" -o out.bc
+    echo "opt-3.9 -load $INPUT_DEP_PATH/libInputDependency.so -load $UTILS_PATH -load $OH_LIB/liboblivious-hashing.so $bitcode -oh-insert -num-hash 1 -skip 'hash' -dump-oh-stat="oh.stats" -o out.bc"
+    exit
 fi
 
 if [ $? -eq 0 ]; then
