@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <execinfo.h>
 #include <math.h>
 #define DEBUG 1
 #define DEBUG2 0
@@ -12,6 +13,13 @@ void response() {
 void assert(long long* hash, long long expected) {
 	if(DEBUG) printf("\tAssert: %lld==%lld\n", *hash, expected);
 	if(*hash != expected){
+		void* callstack[128];
+		int i, frames = backtrace(callstack, 128);
+		char** strs = backtrace_symbols(callstack, frames);
+		for (i = 0; i < frames; ++i) {
+			printf("%s\n", strs[i]);
+		}
+		free(strs);
 		response();
 	}
 }
