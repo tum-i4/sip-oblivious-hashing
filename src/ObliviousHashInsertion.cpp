@@ -406,6 +406,18 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
     if (F.isDeclaration() || F.isIntrinsic()) {
       continue;
     } 
+    auto F_input_dependency_info = input_dependency_info.getAnalysisInfo(&F);
+    if(!F_input_dependency_info){
+	    llvm::dbgs()<<"No input dep info for function "<<F.getName()<< ". Skip\n";
+	    continue;
+    }
+
+    // no hashes for functions called from non deterministc blocks
+    if (F_input_dependency_info->isInputDepFunction()) {
+	    llvm::dbgs() << "Function "<<F.getName()<<" is input dependent. Skip\n";
+	    continue;
+    }
+
     if (function_filter_info->get_functions().size() != 0 &&
             !function_filter_info->is_function(&F)) {
       llvm::dbgs() << " Skipping function per FilterFunctionPass:" << F.getName() << "\n";
@@ -413,10 +425,12 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
     }  
     llvm::dbgs() << " Processing function:" << F.getName() << "\n";
     countProcessedFuncs++;
-    // no hashes for functions called from non deterministc blocks
-    if (!function_calls.is_function_input_independent(&F)) {
+    /*if (!function_calls.is_function_input_independent(&F)) {
+      llvm::dbgs() << "Skipping input dependent function "<<F.getName()<<"\n";
       continue;
-    }
+    } else {
+      llvm::dbgs()<<"Including input independent function "<<F.getName()<<"\n";
+    }*/
     llvm::LoopInfo &LI =
         getAnalysis<llvm::LoopInfoWrapperPass>(F).getLoopInfo();
     for (auto &B : F) {

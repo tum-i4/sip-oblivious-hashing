@@ -37,7 +37,7 @@ else
     echo "No assert file is supplied.."
     #echo "opt-3.9 -load $INPUT_DEP_PATH/libInputDependency.so -load $UTILS_PATH -load $OH_LIB/liboblivious-hashing.so $bitcode -oh-insert -num-hash 1 -skip 'hash' -dump-oh-stat="oh.stats" -o out.bc"
     #exit
-    opt-3.9 -load $INPUT_DEP_PATH/libInputDependency.so -load $UTILS_PATH -load  $OH_LIB/liboblivious-hashing.so $bitcode -oh-insert -num-hash 1 -skip 'hash' -dump-oh-stat="oh.stats" -o out.bc
+    opt-3.9 -load $INPUT_DEP_PATH/libInputDependency.so -load $UTILS_PATH -load  $OH_LIB/liboblivious-hashing.so $bitcode -dependency-stats -dependency-stats-file='dependency.stats' -oh-insert -num-hash 1 -skip 'hash' -dump-oh-stat="oh.stats" -o out.bc
 
 fi
 
