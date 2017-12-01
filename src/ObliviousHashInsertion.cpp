@@ -434,7 +434,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
     llvm::LoopInfo &LI =
         getAnalysis<llvm::LoopInfoWrapperPass>(F).getLoopInfo();
     for (auto &B : F) {
-      if (non_det_blocks.is_block_nondeterministic(&B) && &F.back() != &B) {
+      if (F_input_dependency_info->isInputDependentBlock(&B) && &F.back() != &B) {
         continue;
       }
       for (auto &I : B) {
@@ -447,7 +447,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
             continue;
           }
         }
-        if (input_dependency_info.isInputDependent(&I)) {
+        if (F_input_dependency_info->isInputDependent(&I)) {
           if (auto callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
             llvm::dbgs() << "Input dependent call instruction: ";
             callInst->print(llvm::dbgs(), true);
