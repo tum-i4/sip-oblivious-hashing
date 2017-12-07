@@ -27,19 +27,19 @@ input=$3
 #clang-3.9 $OH_PATH/hashes/hash.c -c -fno-use-cxa-atexit -emit-llvm -o $OH_PATH/hashes/hash.bc
 #clang++-3.9 $OH_PATH/assertions/logs.cpp -fno-use-cxa-atexit -std=c++0x -c -emit-llvm -o $OH_PATH/assertions/logs.bc
 clang-3.9 $OH_PATH/assertions/response.c -c -fno-use-cxa-atexit -emit-llvm -o $OH_PATH/assertions/response.bc
-
+ 
 # Running hash insertion pass
-if [ $# -eq 2 ] 
-  then
-    echo "Assert file list is supplied"
-    opt-3.9 -load $INPUT_DEP_PATH/libInputDependency.so -load $UTILS_PATH -load  $OH_LIB/liboblivious-hashing.so $bitcode -oh-insert -num-hash 1 -skip 'hash' -dump-oh-stat="oh.stats" -assert-functions $assert_list -o out.bc
-else
+#if [ $# -eq 2 ] 
+#  then
+#    echo "Assert file list is supplied"
+#    opt-3.9 -load $INPUT_DEP_PATH/libInputDependency.so -load $UTILS_PATH -load  $OH_LIB/liboblivious-hashing.so $bitcode -oh-insert -num-hash 1 -skip 'hash' -dump-oh-stat="oh.stats" -assert-functions $assert_list -o out.bc
+#else
     echo "No assert file is supplied.."
     #echo "opt-3.9 -load $INPUT_DEP_PATH/libInputDependency.so -load $UTILS_PATH -load $OH_LIB/liboblivious-hashing.so $bitcode -oh-insert -num-hash 1 -skip 'hash' -dump-oh-stat="oh.stats" -o out.bc"
     #exit
-    opt-3.9 -load $INPUT_DEP_PATH/libInputDependency.so -load $UTILS_PATH -load  $OH_LIB/liboblivious-hashing.so $bitcode -dependency-stats -dependency-stats-file='dependency.stats' -oh-insert -num-hash 1 -skip 'hash' -dump-oh-stat="oh.stats" -o out.bc
+    opt-3.9 -load $INPUT_DEP_PATH/libInputDependency.so -load $UTILS_PATH -load  $OH_LIB/liboblivious-hashing.so -load $INPUT_DEP_PATH/libTransforms.so $bitcode -dependency-stats -dependency-stats-file='dependency.stats' -lib-config=/home/sip/input-dependency-analyzer/library_configs/tetris_library_config.json -clone-functions -extract-functions -oh-insert -num-hash 1 -skip 'hash' -dump-oh-stat="oh.stats" -o out.bc
 
-fi
+#fi
 
 if [ $? -eq 0 ]; then
             echo 'OK Transform'

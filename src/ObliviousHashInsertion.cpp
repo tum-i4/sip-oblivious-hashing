@@ -224,7 +224,8 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I) {
 	}
 
         insertHash(I, operand, false);
-      } else if (llvm::LoadInst::classof(call->getArgOperand(i))) {
+      } // See #15 input dependent load instructions break hash 
+      /*else if (llvm::LoadInst::classof(call->getArgOperand(i))) {
         auto *load = llvm::dyn_cast<llvm::Instruction>(call->getArgOperand(i));
 	//instrumentInst will call insertHash which increments
 	//the number or protected instructions. 
@@ -237,7 +238,7 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I) {
 		stats.addNumberOfProtectedGuardArguments(1);
 	}
         instrumentInst(*load);
-      } else {
+      } */else {
         llvm::dbgs() << "Can't handle this operand ";
         call->getArgOperand(i)->print(llvm::dbgs(), true);
         llvm::dbgs() << " of the call ";
@@ -406,6 +407,14 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
     if (F.isDeclaration() || F.isIntrinsic()) {
       continue;
     } 
+    if (function_filter_info->get_functions().size() != 0 &&
+            !function_filter_info->is_function(&F)) {
+      llvm::dbgs() << " Skipping function per FilterFunctionPass:" << F.getName() << "\n";
+      continue;
+    }  
+    llvm::dbgs() << " Processing function:" << F.getName() << "\n";
+    countProcessedFuncs++;
+
     auto F_input_dependency_info = input_dependency_info.getAnalysisInfo(&F);
     if(!F_input_dependency_info){
 	    llvm::dbgs()<<"No input dep info for function "<<F.getName()<< ". Skip\n";
@@ -418,14 +427,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
 	    continue;
     }
 
-    if (function_filter_info->get_functions().size() != 0 &&
-            !function_filter_info->is_function(&F)) {
-      llvm::dbgs() << " Skipping function per FilterFunctionPass:" << F.getName() << "\n";
-      continue;
-    }  
-    llvm::dbgs() << " Processing function:" << F.getName() << "\n";
-    countProcessedFuncs++;
-    /*if (!function_calls.is_function_input_independent(&F)) {
+     /*if (!function_calls.is_function_input_independent(&F)) {
       llvm::dbgs() << "Skipping input dependent function "<<F.getName()<<"\n";
       continue;
     } else {
