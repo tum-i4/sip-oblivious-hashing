@@ -1,9 +1,7 @@
 #include "ObliviousHashInsertion.h"
 //#include "AssertFunctionMarkPass.h"
-#include "NonDeterministicBasicBlocksAnalysis.h"
 #include "Utils.h"
 #include "input-dependency/InputDependencyAnalysis.h"
-#include "input-dependency/InputDependentFunctions.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
@@ -55,9 +53,7 @@ static llvm::cl::opt<std::string> SkipTaggedInstructions(
 void ObliviousHashInsertionPass::getAnalysisUsage(
     llvm::AnalysisUsage &AU) const {
   AU.setPreservesAll();
-  AU.addRequired<input_dependency::InputDependencyAnalysis>();
-  AU.addRequired<input_dependency::InputDependentFunctionsPass>();
-  AU.addRequired<NonDeterministicBasicBlocksAnalysis>();
+  AU.addRequired<input_dependency::InputDependencyAnalysisPass>();
   AU.addRequired<llvm::LoopInfoWrapperPass>();
   AU.addRequired<FunctionMarkerPass>();
   AU.addRequired<FunctionFilterPass>();
@@ -385,11 +381,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
 
   hashPtrs.reserve(num_hash);
   const auto &input_dependency_info =
-      getAnalysis<input_dependency::InputDependencyAnalysis>();
-  const auto &function_calls =
-      getAnalysis<input_dependency::InputDependentFunctionsPass>();
-  const auto &non_det_blocks =
-      getAnalysis<NonDeterministicBasicBlocksAnalysis>();
+      getAnalysis<input_dependency::InputDependencyAnalysisPass>().getInputDependencyAnalysis();
   //const auto &assert_function_info =
   //    getAnalysis<AssertFunctionMarkPass>().get_assert_functions_info();
   const auto &function_info = getAnalysis<FunctionMarkerPass>().get_functions_info();
@@ -415,7 +407,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
     llvm::dbgs() << " Processing function:" << F.getName() << "\n";
     countProcessedFuncs++;
 
-    auto F_input_dependency_info = input_dependency_info.getAnalysisInfo(&F);
+    auto F_input_dependency_info = input_dependency_info->getAnalysisInfo(&F);
     if(!F_input_dependency_info){
 	    llvm::dbgs()<<"No input dep info for function "<<F.getName()<< ". Skip\n";
 	    continue;
@@ -423,7 +415,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
 
     // no hashes for functions called from non deterministc blocks
     if (F_input_dependency_info->isInputDepFunction()) {
-	    llvm::dbgs() << "Function "<<F.getName()<<" is input dependent. Skip\n";
+	    llvm::dbgs() << "Function " << F.getName()<<" is input dependent. Skip\n";
 	    continue;
     }
 
@@ -455,7 +447,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
             callInst->print(llvm::dbgs(), true);
             llvm::dbgs() << "\n";
 
-            if (callInst->getCalledFunction()->getName() == "guardMe")
+            if (callInst->getCalledFunction() && callInst->getCalledFunction()->getName() == "guardMe")
               llvm::dbgs()<<"@Anahit: guardMe is marked as input dependent...";
               goto l1;
           }

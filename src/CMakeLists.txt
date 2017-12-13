@@ -2,7 +2,7 @@ add_library(oblivious-hashing MODULE
 	ObliviousHashInsertion.cpp 
 	AssertionInsertionPass.cpp 
 	AssertionFinalizePass.cpp 
-	NonDeterministicBasicBlocksAnalysis.cpp
+	#NonDeterministicBasicBlocksAnalysis.cpp
 	AssertFunctionMarkPass.cpp
 	Stats.cpp
 	)
