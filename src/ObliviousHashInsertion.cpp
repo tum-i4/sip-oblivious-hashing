@@ -1,7 +1,8 @@
 #include "ObliviousHashInsertion.h"
 //#include "AssertFunctionMarkPass.h"
 #include "Utils.h"
-#include "input-dependency/InputDependencyAnalysis.h"
+#include "input-dependency/InputDependencyAnalysisPass.h"
+#include "input-dependency/FunctionInputDependencyResultInterface.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
@@ -498,8 +499,8 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
         if (function_info->get_functions().size() == 0 ||
             !function_info->is_function(&F)) {
           insertLogger(I);
-          //llvm::dbgs() << "InsertLogger included function:" << F.getName()
-          //             << " because it is not in the skip  assert list!\n";
+          llvm::dbgs() << "InsertLogger included function:" << F.getName()
+                       << " because it is not in the skip  assert list!\n";
 
           modified = true;
         } else {
