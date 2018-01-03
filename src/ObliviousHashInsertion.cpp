@@ -204,6 +204,7 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I) {
     llvm::dbgs() << "Processing call instruction..\n";
     call->print(llvm::dbgs(), true);
     llvm::dbgs() << "\n";
+    bool guardCallHasHashedArgument = false;
     for (int i = 0; i < call->getNumArgOperands(); ++i) {
       if (llvm::ConstantInt::classof(call->getArgOperand(i))) {
         auto *operand =
@@ -218,6 +219,7 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I) {
 	if (auto *metadata = I.getMetadata(GUARD_META_DATA)) {
 		stats.addNumberOfProtectedGuardInstructions(-1);
 		stats.addNumberOfProtectedGuardArguments(1);
+		guardCallHasHashedArgument = true;
 	}
 
         insertHash(I, operand, false);
@@ -242,6 +244,13 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I) {
         call->print(llvm::dbgs(), true);
         llvm::dbgs() << "\n";
       }
+    }
+    // #20 increment number of protected guard instruction,
+    // when at least one of the guard call arguments are
+    // incorporated into the hash
+    if(guardCallHasHashedArgument) {
+      stats.addNumberOfProtectedGuardInstructions(1);
+      guardCallHasHashedArgument = false;
     }
   }
   /*if (llvm::AtomicRMWInst::classof(&I)) {
