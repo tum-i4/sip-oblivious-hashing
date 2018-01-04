@@ -1,8 +1,10 @@
 #include "ObliviousHashInsertion.h"
-//#include "AssertFunctionMarkPass.h"
+#include "FunctionCallSitesInformation.h"
 #include "Utils.h"
+
 #include "input-dependency/InputDependencyAnalysisPass.h"
 #include "input-dependency/FunctionInputDependencyResultInterface.h"
+
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
@@ -16,6 +18,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
+
 #include <assert.h>
 #include <boost/algorithm/string/classification.hpp> // Include boost::for is_any_of
 #include <boost/algorithm/string/split.hpp>          // Include for boost::split
@@ -25,8 +28,10 @@
 #include <sstream>
 #include <string>
 #include <vector>
+
 #include "../../self-checksumming/src/FunctionMarker.h"
 #include "../../self-checksumming/src/FunctionFilter.h"
+
 using namespace llvm;
 using namespace std;
 namespace oh {
@@ -56,6 +61,7 @@ void ObliviousHashInsertionPass::getAnalysisUsage(
   AU.setPreservesAll();
   AU.addRequired<input_dependency::InputDependencyAnalysisPass>();
   AU.addRequired<llvm::LoopInfoWrapperPass>();
+  AU.addRequired<FunctionCallSiteInformationPass>();
   AU.addRequired<FunctionMarkerPass>();
   AU.addRequired<FunctionFilterPass>();
 }
@@ -331,21 +337,6 @@ void ObliviousHashInsertionPass::insertLogger(llvm::IRBuilder<> &builder,
   builder.CreateCall(logger, args);
 }
 
-void ObliviousHashInsertionPass::end_logging(llvm::Instruction &I) {
-  llvm::LLVMContext &Ctx = I.getParent()->getParent()->getContext();
-  llvm::IRBuilder<> builder(&I);
-  builder.SetInsertPoint(I.getParent(), builder.GetInsertPoint());
-
-  std::vector<llvm::Value *> arg_values;
-  llvm::Value *zero_val =
-      llvm::ConstantInt::get(llvm::Type::getInt32Ty(Ctx), 0);
-  arg_values.push_back(zero_val);
-  arg_values.push_back(
-      llvm::ConstantPointerNull::get(llvm::Type::getInt64PtrTy(Ctx)));
-  llvm::ArrayRef<llvm::Value *> args(arg_values);
-  builder.CreateCall(logger, args);
-}
-
 void ObliviousHashInsertionPass::setup_functions(llvm::Module &M) {
   llvm::LLVMContext &Ctx = M.getContext();
   llvm::ArrayRef<llvm::Type *> params{llvm::Type::getInt64PtrTy(Ctx),
@@ -398,6 +389,8 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
   llvm::dbgs() << "Recieved marked functions "<<function_info->get_functions().size()<<"\n";
   const auto &function_filter_info = getAnalysis<FunctionFilterPass>().get_functions_info();
   llvm::dbgs() << "Recieved filter functions "<<function_filter_info->get_functions().size()<<"\n";
+  const auto& function_callsite_data = getAnalysis<FunctionCallSiteInformationPass>().getAnalysisResult();
+
   int countProcessedFuncs =0;
   // Get the function to call from our runtime library.
   setup_functions(M);
@@ -451,19 +444,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
             continue;
           }
         }
-        if (F_input_dependency_info->isInputDependent(&I)) {
-          if (auto callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
-            llvm::dbgs() << "Input dependent call instruction: ";
-            callInst->print(llvm::dbgs(), true);
-            llvm::dbgs() << "\n";
-
-            if (callInst->getCalledFunction() && callInst->getCalledFunction()->getName() == "guardMe")
-              llvm::dbgs()<<"@Anahit: guardMe is marked as input dependent...";
-              goto l1;
-          }
-          // llvm::dbgs() << "D: " << I << "\n";
-        } else {
-        l1:
+        if (!F_input_dependency_info->isInputDependent(&I)) {
           // llvm::dbgs() << "I: " << I << "\n";
           /*if (auto callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
                llvm::dbgs()<<"Input independent call instruction: ";
@@ -486,6 +467,11 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
 
           instrumentInst(I);
           modified = true;
+        }
+        if (function_callsite_data.isFunctionCalledInLoop(&F)) {
+            llvm::dbgs() << "InsertLogger skipped function:" << F.getName()
+                         << " because it is called from a loop!\n";
+            continue;
         }
         auto loop = LI.getLoopFor(&B);
         if (loop != nullptr) {
@@ -524,7 +510,6 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
     dbgs()<<"OH stats is requested, dumping stat file...\n";
     stats.dumpJson(DumpOHStat);
   }
-
 
   //Make sure OH only processed filter function list
   if(countProcessedFuncs!=function_filter_info->get_functions().size() 

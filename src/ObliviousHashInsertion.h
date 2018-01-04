@@ -25,7 +25,6 @@ private:
   void insertLogger(llvm::Instruction &I);
   void insertLogger(llvm::IRBuilder<> &builder, llvm::Instruction &I,
                     unsigned hashToLogIdx);
-  void end_logging(llvm::Instruction &I);
   void parse_skip_tags();
 
 private:
