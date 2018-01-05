@@ -20,7 +20,7 @@ private:
   void setup_functions(llvm::Module &M);
   void setup_hash_values(llvm::Module &M);
   bool insertHashBuilder(llvm::IRBuilder<> &builder, llvm::Value *v, bool isGuard);
-  void insertHash(llvm::Instruction &I, llvm::Value *v, bool before);
+  bool insertHash(llvm::Instruction &I, llvm::Value *v, bool before);
   bool instrumentInst(llvm::Instruction &I);
   void insertLogger(llvm::Instruction &I);
   void insertLogger(llvm::IRBuilder<> &builder, llvm::Instruction &I,

@@ -2,8 +2,8 @@
 #include "FunctionCallSitesInformation.h"
 #include "Utils.h"
 
-#include "input-dependency/InputDependencyAnalysisPass.h"
 #include "input-dependency/FunctionInputDependencyResultInterface.h"
+#include "input-dependency/InputDependencyAnalysisPass.h"
 
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/IR/BasicBlock.h"
@@ -29,8 +29,8 @@
 #include <string>
 #include <vector>
 
-#include "../../self-checksumming/src/FunctionMarker.h"
 #include "../../self-checksumming/src/FunctionFilter.h"
+#include "../../self-checksumming/src/FunctionMarker.h"
 
 using namespace llvm;
 using namespace std;
@@ -41,11 +41,11 @@ unsigned get_random(unsigned range) { return rand() % range; }
 }
 
 char ObliviousHashInsertionPass::ID = 0;
-const std::string GUARD_META_DATA = "guard"; 
+const std::string GUARD_META_DATA = "guard";
 
-static cl::opt<std::string> DumpOHStat(
-		    "dump-oh-stat", cl::Hidden,
-		        cl::desc("File path to dump pass stat in Json format "));
+static cl::opt<std::string>
+    DumpOHStat("dump-oh-stat", cl::Hidden,
+               cl::desc("File path to dump pass stat in Json format "));
 
 static llvm::cl::opt<unsigned>
     num_hash("num-hash", llvm::cl::desc("Specify number of hash values to use"),
@@ -66,7 +66,7 @@ void ObliviousHashInsertionPass::getAnalysisUsage(
   AU.addRequired<FunctionFilterPass>();
 }
 
-void ObliviousHashInsertionPass::insertHash(llvm::Instruction &I,
+bool ObliviousHashInsertionPass::insertHash(llvm::Instruction &I,
                                             llvm::Value *v, bool before) {
   //#7 requires to hash pointer operand of a StoreInst
   /*if (v->getType()->isPointerTy()) {
@@ -78,27 +78,28 @@ void ObliviousHashInsertionPass::insertHash(llvm::Instruction &I,
     builder.SetInsertPoint(I.getParent(), builder.GetInsertPoint());
   else
     builder.SetInsertPoint(I.getParent(), ++builder.GetInsertPoint());
-  bool isGuard  = false;  
+  bool isGuard = false;
   if (auto *metadata = I.getMetadata(GUARD_META_DATA)) {
-	  isGuard = true;
+    isGuard = true;
   }
-  //dbgs()<<"Instruction to instrument:";
-  //I.print(dbgs(),true);
-  //dbgs()<<"\n";
-  insertHashBuilder(builder, v, isGuard);
+  // dbgs()<<"Instruction to instrument:";
+  // I.print(dbgs(),true);
+  // dbgs()<<"\n";
+  return insertHashBuilder(builder, v, isGuard);
 }
 
 bool ObliviousHashInsertionPass::insertHashBuilder(llvm::IRBuilder<> &builder,
-                                                   llvm::Value *v, bool isGuard) {
+                                                   llvm::Value *v,
+                                                   bool isGuard) {
   llvm::LLVMContext &Ctx = builder.getContext();
   llvm::Value *cast;
   llvm::Value *load;
   if (v->getType()->isPointerTy()) {
     llvm::Type *ptrType = v->getType()->getPointerElementType();
-    //ptrType->print(dbgs(), true);
-    //dbgs() << "\n";
+    // ptrType->print(dbgs(), true);
+    // dbgs() << "\n";
     if (!ptrType->isIntegerTy() && !ptrType->isFloatingPointTy()) {
-      //Currently we only handle int and float pointers
+      // Currently we only handle int and float pointers
       dbgs() << "Non numeric pointers (int and float) are skipped:";
       v->print(dbgs(), true);
       ptrType->print(dbgs(), true);
@@ -106,9 +107,9 @@ bool ObliviousHashInsertionPass::insertHashBuilder(llvm::IRBuilder<> &builder,
       return false;
     }
     load = builder.CreateLoad(v);
-    //llvm::dbgs() << "creating load for pointer ";
-    //v->print(llvm::dbgs(), true);
-    //llvm::dbgs() << "\n";
+    // llvm::dbgs() << "creating load for pointer ";
+    // v->print(llvm::dbgs(), true);
+    // llvm::dbgs() << "\n";
   } else {
     load = v;
   }
@@ -119,14 +120,14 @@ bool ObliviousHashInsertionPass::insertHashBuilder(llvm::IRBuilder<> &builder,
     // This should never happen, pointer to pointer should not reach here
     dbgs()<<"ERR.  insertHashBuilder\n";
     assert(false);
-  } */else if (load->getType()->isFloatingPointTy())
+  } */ else if (load->getType()->isFloatingPointTy())
     cast = builder.CreateFPToSI(load, llvm::Type::getInt64Ty(Ctx));
-  else
-  {
-    dbgs()<<"\nERR. Any value other than int and float is passed to insertHashBuilder\n";
+  else {
+    dbgs() << "\nERR. Any value other than int and float is passed to "
+              "insertHashBuilder\n";
     load->getType()->print(dbgs(), true);
-    dbgs()<<"\n";
-    return false;//assert(false);
+    dbgs() << "\n";
+    return false; // assert(false);
   }
   std::vector<llvm::Value *> arg_values;
   unsigned index = get_random(num_hash);
@@ -135,10 +136,11 @@ bool ObliviousHashInsertionPass::insertHashBuilder(llvm::IRBuilder<> &builder,
   arg_values.push_back(cast);
   llvm::ArrayRef<llvm::Value *> args(arg_values);
 
-  //STATS: add the instruction  to stats
+  // STATS: add the instruction  to stats
   stats.addNumberOfHashCalls(1);
   stats.addNumberOfProtectedInstructions(1);
-  if(isGuard) stats.addNumberOfProtectedGuardInstructions(1);
+  if (isGuard)
+    stats.addNumberOfProtectedGuardInstructions(1);
   builder.CreateCall(get_random(2) ? hashFunc1 : hashFunc2, args);
   return true;
 }
@@ -155,6 +157,7 @@ void ObliviousHashInsertionPass::parse_skip_tags() {
   }
 }
 bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I) {
+  bool hashInserted = false;
   if (llvm::CmpInst::classof(&I)) {
     auto *cmp = llvm::dyn_cast<llvm::CmpInst>(&I);
     llvm::LLVMContext &Ctx = I.getModule()->getContext();
@@ -172,35 +175,35 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I) {
                 cmpExt, llvm::ConstantInt::get(llvm::Type::getInt8Ty(Ctx), 1))),
         llvm::ConstantInt::get(llvm::Type::getInt8Ty(Ctx),
                                cmp->getPredicate()));
-  bool isGuard  = false;  
-  if (auto *metadata = I.getMetadata(GUARD_META_DATA)) {
-	  isGuard = true;
+    bool isGuard = false;
+    if (auto *metadata = I.getMetadata(GUARD_META_DATA)) {
+      isGuard = true;
+    }
+    hashInserted = insertHashBuilder(builder, val, isGuard);
   }
-    insertHashBuilder(builder, val, isGuard);
-  }
-  if (llvm::ReturnInst::classof(&I)) {
+  else if (llvm::ReturnInst::classof(&I)) {
     auto *ret = llvm::dyn_cast<llvm::ReturnInst>(&I);
     auto *val = ret->getReturnValue();
     if (val) {
-      insertHash(I, val, true);
+      hashInserted = insertHash(I, val, true);
     }
   }
-  if (llvm::LoadInst::classof(&I)) {
+  else if (llvm::LoadInst::classof(&I)) {
     auto *load = llvm::dyn_cast<llvm::LoadInst>(&I);
-    insertHash(I, load, false);
+    hashInserted = insertHash(I, load, false);
   }
-  if (llvm::StoreInst::classof(&I)) {
+  else if (llvm::StoreInst::classof(&I)) {
     auto *store = llvm::dyn_cast<llvm::StoreInst>(&I);
     llvm::Value *v = store->getPointerOperand();
-    insertHash(I, v, false);
+    hashInserted = insertHash(I, v, false);
   }
-  if (llvm::BinaryOperator::classof(&I)) {
+  else if (llvm::BinaryOperator::classof(&I)) {
     auto *bin = llvm::dyn_cast<llvm::BinaryOperator>(&I);
     if (bin->getOpcode() == llvm::Instruction::Add) {
-      insertHash(I, bin, false);
+      hashInserted = insertHash(I, bin, false);
     }
   }
-  if (llvm::CallInst::classof(&I)) {
+  else if (llvm::CallInst::classof(&I)) {
     auto *call = llvm::dyn_cast<llvm::CallInst>(&I);
     auto called_function = call->getCalledFunction();
     if (called_function == nullptr || called_function->isIntrinsic() ||
@@ -216,20 +219,20 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I) {
         auto *operand =
             llvm::dyn_cast<llvm::ConstantInt>(call->getArgOperand(i));
         llvm::dbgs() << "***Handling a call instruction***\n";
-	//insertHash which increments
-	//the number or protected instructions. 
-	//while this is just an argument of a call inst
-	//therefore, we subtract 1 to even out the result
-	stats.addNumberOfProtectedInstructions(-1);
-	stats.addNumberOfProtectedArguments(1);
-	if (auto *metadata = I.getMetadata(GUARD_META_DATA)) {
-		stats.addNumberOfProtectedGuardInstructions(-1);
-		stats.addNumberOfProtectedGuardArguments(1);
-		guardCallHasHashedArgument = true;
-	}
-
-        insertHash(I, operand, false);
-      } // See #15 input dependent load instructions break hash 
+        // insertHash which increments
+        // the number or protected instructions.
+        // while this is just an argument of a call inst
+        // therefore, we subtract 1 to even out the result
+        stats.addNumberOfProtectedInstructions(-1);
+        stats.addNumberOfProtectedArguments(1);
+        if (auto *metadata = I.getMetadata(GUARD_META_DATA)) {
+          stats.addNumberOfProtectedGuardInstructions(-1);
+          stats.addNumberOfProtectedGuardArguments(1);
+          guardCallHasHashedArgument = true;
+        }
+	//one successful insertion is enough to signal hash insertion
+        hashInserted = hashInserted || insertHash(I, operand, false);
+      } // See #15 input dependent load instructions break hash
       /*else if (llvm::LoadInst::classof(call->getArgOperand(i))) {
         auto *load = llvm::dyn_cast<llvm::Instruction>(call->getArgOperand(i));
 	//instrumentInst will call insertHash which increments
@@ -242,8 +245,8 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I) {
 		stats.addNumberOfProtectedGuardInstructions(-1);
 		stats.addNumberOfProtectedGuardArguments(1);
 	}
-        instrumentInst(*load);
-      } */else {
+        hashInserted = instrumentInst(*load);
+      } */ else {
         llvm::dbgs() << "Can't handle this operand ";
         call->getArgOperand(i)->print(llvm::dbgs(), true);
         llvm::dbgs() << " of the call ";
@@ -254,7 +257,7 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I) {
     // #20 increment number of protected guard instruction,
     // when at least one of the guard call arguments are
     // incorporated into the hash
-    if(guardCallHasHashedArgument) {
+    if (guardCallHasHashedArgument) {
       stats.addNumberOfProtectedGuardInstructions(1);
       guardCallHasHashedArgument = false;
     }
@@ -265,6 +268,7 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I) {
       armw->getValOperand()->getType()->print(llvm::dbgs());
       llvm::dbgs() << "\n";
   }*/
+  return hashInserted;
 }
 
 void ObliviousHashInsertionPass::insertLogger(llvm::Instruction &I) {
@@ -330,10 +334,10 @@ void ObliviousHashInsertionPass::insertLogger(llvm::IRBuilder<> &builder,
   // arg_values.push_back(hashPtrs.at(hashToLogIdx));
   // arg_values.push_back(id_value);
   // llvm::ArrayRef<llvm::Value *> args(arg_values);
- 
-  //Stats add the assert call
+
+  // Stats add the assert call
   stats.addNumberOfAssertCalls(1);
-  
+
   builder.CreateCall(logger, args);
 }
 
@@ -382,56 +386,67 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
 
   hashPtrs.reserve(num_hash);
   const auto &input_dependency_info =
-      getAnalysis<input_dependency::InputDependencyAnalysisPass>().getInputDependencyAnalysis();
-  //const auto &assert_function_info =
+      getAnalysis<input_dependency::InputDependencyAnalysisPass>()
+          .getInputDependencyAnalysis();
+  // const auto &assert_function_info =
   //    getAnalysis<AssertFunctionMarkPass>().get_assert_functions_info();
-  const auto &function_info = getAnalysis<FunctionMarkerPass>().get_functions_info();
-  llvm::dbgs() << "Recieved marked functions "<<function_info->get_functions().size()<<"\n";
-  const auto &function_filter_info = getAnalysis<FunctionFilterPass>().get_functions_info();
-  llvm::dbgs() << "Recieved filter functions "<<function_filter_info->get_functions().size()<<"\n";
-  const auto& function_callsite_data = getAnalysis<FunctionCallSiteInformationPass>().getAnalysisResult();
+  const auto &function_info =
+      getAnalysis<FunctionMarkerPass>().get_functions_info();
+  llvm::dbgs() << "Recieved marked functions "
+               << function_info->get_functions().size() << "\n";
+  const auto &function_filter_info =
+      getAnalysis<FunctionFilterPass>().get_functions_info();
+  llvm::dbgs() << "Recieved filter functions "
+               << function_filter_info->get_functions().size() << "\n";
+  const auto &function_callsite_data =
+      getAnalysis<FunctionCallSiteInformationPass>().getAnalysisResult();
 
-  int countProcessedFuncs =0;
+  int countProcessedFuncs = 0;
   // Get the function to call from our runtime library.
   setup_functions(M);
   // Insert Globals
   setup_hash_values(M);
 
   for (auto &F : M) {
+    bool hashUpdated = false;
     // No input dependency info for declarations and instrinsics.
     if (F.isDeclaration() || F.isIntrinsic()) {
       continue;
-    } 
+    }
     if (function_filter_info->get_functions().size() != 0 &&
-            !function_filter_info->is_function(&F)) {
-      llvm::dbgs() << " Skipping function per FilterFunctionPass:" << F.getName() << "\n";
+        !function_filter_info->is_function(&F)) {
+      llvm::dbgs() << " Skipping function per FilterFunctionPass:"
+                   << F.getName() << "\n";
       continue;
-    }  
+    }
     llvm::dbgs() << " Processing function:" << F.getName() << "\n";
     countProcessedFuncs++;
 
     auto F_input_dependency_info = input_dependency_info->getAnalysisInfo(&F);
-    if(!F_input_dependency_info){
-	    llvm::dbgs()<<"No input dep info for function "<<F.getName()<< ". Skip\n";
-	    continue;
+    if (!F_input_dependency_info) {
+      llvm::dbgs() << "No input dep info for function " << F.getName()
+                   << ". Skip\n";
+      continue;
     }
 
     // no hashes for functions called from non deterministc blocks
     if (F_input_dependency_info->isInputDepFunction()) {
-	    llvm::dbgs() << "Function " << F.getName()<<" is input dependent. Skip\n";
-	    continue;
+      llvm::dbgs() << "Function " << F.getName()
+                   << " is input dependent. Skip\n";
+      continue;
     }
 
-     /*if (!function_calls.is_function_input_independent(&F)) {
-      llvm::dbgs() << "Skipping input dependent function "<<F.getName()<<"\n";
-      continue;
-    } else {
-      llvm::dbgs()<<"Including input independent function "<<F.getName()<<"\n";
-    }*/
+    /*if (!function_calls.is_function_input_independent(&F)) {
+     llvm::dbgs() << "Skipping input dependent function "<<F.getName()<<"\n";
+     continue;
+   } else {
+     llvm::dbgs()<<"Including input independent function "<<F.getName()<<"\n";
+   }*/
     llvm::LoopInfo &LI =
         getAnalysis<llvm::LoopInfoWrapperPass>(F).getLoopInfo();
     for (auto &B : F) {
-      if (F_input_dependency_info->isInputDependentBlock(&B) && &F.back() != &B) {
+      if (F_input_dependency_info->isInputDependentBlock(&B) &&
+          &F.back() != &B) {
         continue;
       }
       for (auto &I : B) {
@@ -465,13 +480,13 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
             }
           }
 
-          instrumentInst(I);
+          hashUpdated = instrumentInst(I);
           modified = true;
         }
         if (function_callsite_data.isFunctionCalledInLoop(&F)) {
-            llvm::dbgs() << "InsertLogger skipped function:" << F.getName()
-                         << " because it is called from a loop!\n";
-            continue;
+          llvm::dbgs() << "InsertLogger skipped function:" << F.getName()
+                       << " because it is called from a loop!\n";
+          continue;
         }
         auto loop = LI.getLoopFor(&B);
         if (loop != nullptr) {
@@ -491,22 +506,33 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
           llvm::dbgs() << "InsertLogger skipped function:" << F.getName()
                        << " because it is in the skip assert list!\n";
         }*/
+
+        // We shouldn't insert asserts when there was no hash update, see #9
+        if (!hashUpdated) {
+          llvm::dbgs() << "InsertLogger skipped because there was no hash "
+                          "update in between!\n";
+          continue;
+        }
         if (function_info->get_functions().size() == 0 ||
             !function_info->is_function(&F)) {
-	//Begin #24
-	//If the function has multiple callsites it should get a assert with 
-	//multiple correct hash values, otherwise pather keeps the last call 
-	//as the correct hash. Boom! This breaks OH and signals tampering... 
-	//for now we insert no asserts in functions with multiple callsites
-	//moving forward we should get asserts with multiple place holders
-	  int callsites = function_callsite_data.getNumberOfFunctionCallSites(&F);
-	  llvm::dbgs() << "InsertLogger evaluating function:"<<F.getName()<<" callsites detected ="<<callsites<<"\n";
-	  if(callsites>1) {
-             llvm::dbgs() << "InsertLogger skipped function:" << F.getName()
-                       << " because it has more than one call site, see #24.!\n";
-	     continue;
-	  }
-	//END #24
+          // Begin #24
+          // If the function has multiple callsites it should get a assert with
+          // multiple correct hash values, otherwise pather keeps the last call
+          // as the correct hash. Boom! This breaks OH and signals tampering...
+          // for now we insert no asserts in functions with multiple callsites
+          // moving forward we should get asserts with multiple place holders
+          int callsites =
+              function_callsite_data.getNumberOfFunctionCallSites(&F);
+          llvm::dbgs() << "InsertLogger evaluating function:" << F.getName()
+                       << " callsites detected =" << callsites << "\n";
+          if (callsites > 1) {
+            llvm::dbgs()
+                << "InsertLogger skipped function:" << F.getName()
+                << " because it has more than one call site, see #24.!\n";
+            continue;
+          }
+          // END #24
+          hashUpdated = false;
           insertLogger(I);
           llvm::dbgs() << "InsertLogger included function:" << F.getName()
                        << " because it is not in the skip  assert list!\n";
@@ -516,22 +542,23 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
           llvm::dbgs() << "InsertLogger skipped function:" << F.getName()
                        << " because it is in the skip assert list!\n";
         }
-
       }
     }
   }
-  if(!DumpOHStat.empty()){
-    dbgs()<<"OH stats is requested, dumping stat file...\n";
+  if (!DumpOHStat.empty()) {
+    dbgs() << "OH stats is requested, dumping stat file...\n";
     stats.dumpJson(DumpOHStat);
   }
 
-  //Make sure OH only processed filter function list
-  if(countProcessedFuncs!=function_filter_info->get_functions().size() 
-		  && function_filter_info->get_functions().size()>0){
-    errs()<<"ERR. processed "<<countProcessedFuncs<<" function, while filter count is "<<function_filter_info->get_functions().size()<<"\n";
+  // Make sure OH only processed filter function list
+  if (countProcessedFuncs != function_filter_info->get_functions().size() &&
+      function_filter_info->get_functions().size() > 0) {
+    errs() << "ERR. processed " << countProcessedFuncs
+           << " function, while filter count is "
+           << function_filter_info->get_functions().size() << "\n";
     exit(1);
   }
-//  dbgs()<<"runOnModule is done\n";
+  //  dbgs()<<"runOnModule is done\n";
   return modified;
 }
 
