@@ -12,20 +12,22 @@ void response() {
 
 void assert(long long* hash, long long expected) {
 	if(DEBUG) printf("\tAssert: %lld==%lld\n", *hash, expected);
-	void* callstack[128];
-	int i, frames = backtrace(callstack, 128);
-	char** strs = backtrace_symbols(callstack, frames);
-	
 	if(*hash != expected){
+		void* callstack[128];
+		int i, frames = backtrace(callstack, 128);
+		char** strs = backtrace_symbols(callstack, frames);
+	
+
 		for (i = 0; i < frames; ++i) {
 			printf("%s\n", strs[i]);
 		}
+
+		free(strs);
 		response();
-	}else {
+	}/*else {
 		//print the last functioni before assert in the trace
 		printf("%s\n",strs[1]);
-	}
-	free(strs);
+	}*/
 
 }
 

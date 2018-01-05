@@ -493,6 +493,20 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
         }*/
         if (function_info->get_functions().size() == 0 ||
             !function_info->is_function(&F)) {
+	//Begin #24
+	//If the function has multiple callsites it should get a assert with 
+	//multiple correct hash values, otherwise pather keeps the last call 
+	//as the correct hash. Boom! This breaks OH and signals tampering... 
+	//for now we insert no asserts in functions with multiple callsites
+	//moving forward we should get asserts with multiple place holders
+	  int callsites = function_callsite_data.getNumberOfFunctionCallSites(&F);
+	  llvm::dbgs() << "InsertLogger evaluating function:"<<F.getName()<<" callsites detected ="<<callsites<<"\n";
+	  if(callsites>1) {
+             llvm::dbgs() << "InsertLogger skipped function:" << F.getName()
+                       << " because it has more than one call site, see #24.!\n";
+	     continue;
+	  }
+	//END #24
           insertLogger(I);
           llvm::dbgs() << "InsertLogger included function:" << F.getName()
                        << " because it is not in the skip  assert list!\n";
