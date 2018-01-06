@@ -271,7 +271,7 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I) {
   return hashInserted;
 }
 
-void ObliviousHashInsertionPass::insertLogger(llvm::Instruction &I) {
+void ObliviousHashInsertionPass::insertLogger(llvm::Instruction &I, unsigned expected_hashes_num) {
   // no hashing has been done. no meaning to log
   if (usedHashIndices.empty()) {
     return;
@@ -284,7 +284,7 @@ void ObliviousHashInsertionPass::insertLogger(llvm::Instruction &I) {
   if (llvm::CmpInst::classof(&I)) {
     // log the last value which contains hash for this cmp instruction
     // builder.SetInsertPoint(I.getParent(), ++builder.GetInsertPoint());
-    insertLogger(builder, I, usedHashIndices.back());
+    insertLogger(builder, I, usedHashIndices.back(), expected_hashes_num);
     return;
   }
 
@@ -296,26 +296,34 @@ void ObliviousHashInsertionPass::insertLogger(llvm::Instruction &I) {
     if (called_function != nullptr && !called_function->isIntrinsic() &&
         called_function != hashFunc1 && called_function != hashFunc2) {
       // always insert logger before call instructions
-      insertLogger(builder, I, random_hash_idx);
+      insertLogger(builder, I, random_hash_idx, expected_hashes_num);
       return;
     }
   }
   if (get_random(2)) {
     // insert randomly
-    insertLogger(builder, I, random_hash_idx);
+    insertLogger(builder, I, random_hash_idx, expected_hashes_num);
   }
 }
 int assertCnt = 1;
 void ObliviousHashInsertionPass::insertLogger(llvm::IRBuilder<> &builder,
                                               llvm::Instruction &instr,
-                                              unsigned hashToLogIdx) {
+                                              unsigned hashToLogIdx,
+                                              unsigned expected_hashes_num) {
 
   llvm::LLVMContext &Ctx = builder.getContext();
   builder.SetInsertPoint(instr.getParent(), builder.GetInsertPoint());
 
-  ConstantInt *const_int = (ConstantInt *)ConstantInt::get(
-      Type::getInt64Ty(Ctx), APInt(64, (assertCnt)*1000000000000));
-  vector<Value *> values = {hashPtrs.at(hashToLogIdx), const_int};
+  std::vector<Value*> values;
+  values.reserve(expected_hashes_num + 2);
+  auto* hashes_num_arg = builder.getInt64(expected_hashes_num);
+  values.push_back(hashes_num_arg);
+  values.push_back(hashPtrs.at(hashToLogIdx));
+  for (unsigned i = 0; i < expected_hashes_num; ++i) {
+      ConstantInt *const_int = (ConstantInt *)ConstantInt::get(
+              Type::getInt64Ty(Ctx), APInt(64, (assertCnt++)*1000000000000));
+      values.push_back(const_int);
+  }
   ArrayRef<Value *> args(values);
   // CallInst *assertI = CallInst::Create(logger, args);
   /*if (after) {
@@ -323,8 +331,6 @@ void ObliviousHashInsertionPass::insertLogger(llvm::IRBuilder<> &builder,
   } else {
     assertI->insertBefore(instr);
   }*/
-
-  assertCnt++;
 
   // std::vector<llvm::Value *> arg_values;
   // unsigned id = unique_id_generator::get().next();
@@ -358,10 +364,8 @@ void ObliviousHashInsertionPass::setup_functions(llvm::Module &M) {
       llvm::FunctionType::get(llvm::Type::getVoidTy(Ctx), logger_params, false);
   logger = M.getOrInsertFunction("assert", logger_type);
   */
-  logger = cast<Function>(
-      M.getOrInsertFunction("assert", Type::getVoidTy(M.getContext()),
-                            Type::getInt64PtrTy(M.getContext()),
-                            Type::getInt64Ty(M.getContext()), NULL));
+  logger = M.getOrInsertFunction("assert",
+                        FunctionType::get(Type::getVoidTy(M.getContext()), true));
 }
 
 void ObliviousHashInsertionPass::setup_hash_values(llvm::Module &M) {
@@ -515,31 +519,14 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
         }
         if (function_info->get_functions().size() == 0 ||
             !function_info->is_function(&F)) {
-          // Begin #24
-          // If the function has multiple callsites it should get a assert with
-          // multiple correct hash values, otherwise pather keeps the last call
-          // as the correct hash. Boom! This breaks OH and signals tampering...
-          // for now we insert no asserts in functions with multiple callsites
-          // moving forward we should get asserts with multiple place holders
-          int callsites =
-              function_callsite_data.getNumberOfFunctionCallSites(&F);
-          llvm::dbgs() << "InsertLogger evaluating function:" << F.getName()
-                       << " callsites detected =" << callsites << "\n";
-          if (callsites > 1) {
-            llvm::dbgs()
-                << "InsertLogger skipped function:" << F.getName()
-                << " because it has more than one call site, see #24.!\n";
-            continue;
-          }
-          // END #24
-          hashUpdated = false;
-          insertLogger(I);
-          llvm::dbgs() << "InsertLogger included function:" << F.getName()
-                       << " because it is not in the skip  assert list!\n";
+            insertLogger(I, function_callsite_data.getNumberOfFunctionCallSites(&F));
+            hashUpdated = false;
+            llvm::dbgs() << "InsertLogger included function:" << F.getName()
+                         << " because it is not in the skip  assert list!\n";
 
-          modified = true;
+            modified = true;
         } else {
-          llvm::dbgs() << "InsertLogger skipped function:" << F.getName()
+            llvm::dbgs() << "InsertLogger skipped function:" << F.getName()
                        << " because it is in the skip assert list!\n";
         }
       }

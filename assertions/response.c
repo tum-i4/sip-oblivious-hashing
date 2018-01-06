@@ -2,7 +2,9 @@
 #include <stdlib.h>
 #include <execinfo.h>
 #include <math.h>
-#define DEBUG 1
+#include <stdarg.h>
+
+#define DEBUG 0
 #define DEBUG2 0
 
 void response() {
@@ -10,25 +12,26 @@ void response() {
 	exit(1);
 }
 
-void assert(long long* hash, long long expected) {
+void assert(long long* hash, unsigned num, ...)
+{
 	if(DEBUG) printf("\tAssert: %lld==%lld\n", *hash, expected);
-	if(*hash != expected){
-		void* callstack[128];
-		int i, frames = backtrace(callstack, 128);
-		char** strs = backtrace_symbols(callstack, frames);
+	void* callstack[128];
+	int i, frames = backtrace(callstack, 128);
+	char** strs = backtrace_symbols(callstack, frames);
 	
-
-		for (i = 0; i < frames; ++i) {
-			printf("%s\n", strs[i]);
-		}
-
-		free(strs);
-		response();
-	}/*else {
-		//print the last functioni before assert in the trace
-		printf("%s\n",strs[1]);
-	}*/
-
+    va_list arguments;
+    for (unsigned i = 0; i < num; ++i) {
+        if (*hash == va_arg(arguments, long long)) {
+            return;
+        }
+    }
+    va_end(arguments);
+    printf("\tAssert: incorrect hash value %lld\n", *hash);
+    for (i = 0; i < frames; ++i) {
+        printf("%s\n", strs[i]);
+    }
+	free(strs);
+    response();
 }
 
 void hash1(long long *hashVariable, long long value) {

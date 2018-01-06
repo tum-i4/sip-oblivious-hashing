@@ -4,6 +4,7 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/Pass.h"
 #include "Stats.h"
+
 namespace oh {
 
 class ObliviousHashInsertionPass : public llvm::ModulePass {
@@ -22,9 +23,9 @@ private:
   bool insertHashBuilder(llvm::IRBuilder<> &builder, llvm::Value *v, bool isGuard);
   bool insertHash(llvm::Instruction &I, llvm::Value *v, bool before);
   bool instrumentInst(llvm::Instruction &I);
-  void insertLogger(llvm::Instruction &I);
+  void insertLogger(llvm::Instruction &I, unsigned expected_hashes_num);
   void insertLogger(llvm::IRBuilder<> &builder, llvm::Instruction &I,
-                    unsigned hashToLogIdx);
+                    unsigned hashToLogIdx, unsigned expected_hashes_num);
   void parse_skip_tags();
 
 private:
