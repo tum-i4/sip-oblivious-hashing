@@ -315,11 +315,15 @@ void ObliviousHashInsertionPass::insertLogger(llvm::IRBuilder<> &builder,
   builder.SetInsertPoint(instr.getParent(), builder.GetInsertPoint());
 
   std::vector<Value*> values;
+  if (expected_hashes_num == 0) {
+      // e.g. main
+      ++expected_hashes_num;
+  }
   values.reserve(expected_hashes_num + 2);
   auto* hashes_num_arg = builder.getInt64(expected_hashes_num);
-  values.push_back(hashes_num_arg);
   values.push_back(hashPtrs.at(hashToLogIdx));
-  for (unsigned i = 0; i < expected_hashes_num; ++i) {
+  values.push_back(hashes_num_arg);
+  for (unsigned i = 0; i < 1; ++i) {
       ConstantInt *const_int = (ConstantInt *)ConstantInt::get(
               Type::getInt64Ty(Ctx), APInt(64, (assertCnt++)*1000000000000));
       values.push_back(const_int);
@@ -358,14 +362,15 @@ void ObliviousHashInsertionPass::setup_functions(llvm::Module &M) {
 
   // arguments of logger are line and column number of instruction and hash
   // variable to log
-  /*llvm::ArrayRef<llvm::Type *> logger_params{llvm::Type::getInt64PtrTy(Ctx),
-  llvm::Type::getInt64Ty(Ctx), NULL};
+  llvm::ArrayRef<llvm::Type *> logger_params{llvm::Type::getInt64PtrTy(Ctx),
+                                             llvm::Type::getInt64Ty(Ctx)};
+  /*
   llvm::FunctionType *logger_type =
       llvm::FunctionType::get(llvm::Type::getVoidTy(Ctx), logger_params, false);
   logger = M.getOrInsertFunction("assert", logger_type);
   */
   logger = M.getOrInsertFunction("assert",
-                        FunctionType::get(Type::getVoidTy(M.getContext()), true));
+                        FunctionType::get(Type::getVoidTy(M.getContext()), logger_params, true));
 }
 
 void ObliviousHashInsertionPass::setup_hash_values(llvm::Module &M) {
