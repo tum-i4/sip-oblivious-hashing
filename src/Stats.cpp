@@ -18,11 +18,15 @@ void OHStats::addNumberOfHashCalls(int value){
 void OHStats::addNumberOfAssertCalls(int value){
 	this->numberOfAssertCalls += value;
 }
+void OHStats::addNumberOfImplicitlyProtectedInstructions(int value){
+	this->numberOfImplicitlyProtectedInstructions += value;
+}
 void OHStats::addNumberOfProtectedGuardInstructions(int value){
 	this->numberOfProtectedGuardInstructions+=value;
 }
 void OHStats::dumpJson(std::string filePath){
 	json j;
+	j["numberOfImplicitlyProtectedInstructions"] = this -> numberOfImplicitlyProtectedInstructions;
 	j["numberOfProtectedInstructions"] = this->numberOfProtectedInstructions;
 	j["numberOfProtectedArguments"] = this->numberOfProtectedArguments;
 	j["numberOfHashVariables"] = this->numberOfHashVariables;

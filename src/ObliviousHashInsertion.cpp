@@ -2,8 +2,8 @@
 #include "FunctionCallSitesInformation.h"
 #include "Utils.h"
 
-#include "input-dependency/FunctionInputDependencyResultInterface.h"
-#include "input-dependency/InputDependencyAnalysisPass.h"
+//#include "input-dependency/FunctionInputDependencyResultInterface.h"
+//#include "input-dependency/InputDependencyAnalysisPass.h"
 
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/IR/BasicBlock.h"
@@ -27,7 +27,6 @@
 #include <iterator>
 #include <sstream>
 #include <string>
-#include <vector>
 
 #include "../../self-checksumming/src/FunctionFilter.h"
 #include "../../self-checksumming/src/FunctionMarker.h"
@@ -65,7 +64,41 @@ void ObliviousHashInsertionPass::getAnalysisUsage(
   AU.addRequired<FunctionMarkerPass>();
   AU.addRequired<FunctionFilterPass>();
 }
+std::map<Function *, int> checkeeMap;
+unsigned int getUniqueCheckeeFunctionInstructionCount(llvm::Instruction &I) {
+  if (auto *metadata = I.getMetadata(GUARD_META_DATA)) {
+    auto strMD = llvm::dyn_cast<llvm::MDString>(metadata->getOperand(0).get());
+    auto F = I.getModule()->getFunction(strMD->getString());
+    if (F == NULL) {
+      errs() << "Metadata failed to find function:" << strMD->getString()
+             << "\n";
+    }
+    // if checkee is already counted skip it
+    if (checkeeMap.find(F) != checkeeMap.end()) {
+      dbgs() << "Metadata already seen:" << F->getName() << "\n";
+      return 0;
+    } else {
+      dbgs() << "Metadata seen:" << strMD->getString() << "\n";
+    }
 
+    unsigned int count = 0;
+    for (BasicBlock &bb : *F) {
+      count = std::distance(bb.begin(), bb.end());
+    }
+
+    // add checkee to the map
+    checkeeMap[F] = 1;
+    return count;
+  }
+  return 0;
+}
+
+bool ObliviousHashInsertionPass::isInstAGuard(llvm::Instruction &I) {
+  if (auto *metadata = I.getMetadata(GUARD_META_DATA)) {
+    return true;
+  }
+  return false;
+}
 bool ObliviousHashInsertionPass::insertHash(llvm::Instruction &I,
                                             llvm::Value *v, bool before) {
   //#7 requires to hash pointer operand of a StoreInst
@@ -78,19 +111,11 @@ bool ObliviousHashInsertionPass::insertHash(llvm::Instruction &I,
     builder.SetInsertPoint(I.getParent(), builder.GetInsertPoint());
   else
     builder.SetInsertPoint(I.getParent(), ++builder.GetInsertPoint());
-  bool isGuard = false;
-  if (auto *metadata = I.getMetadata(GUARD_META_DATA)) {
-    isGuard = true;
-  }
-  // dbgs()<<"Instruction to instrument:";
-  // I.print(dbgs(),true);
-  // dbgs()<<"\n";
-  return insertHashBuilder(builder, v, isGuard);
+  return insertHashBuilder(builder, v);
 }
 
 bool ObliviousHashInsertionPass::insertHashBuilder(llvm::IRBuilder<> &builder,
-                                                   llvm::Value *v,
-                                                   bool isGuard) {
+                                                   llvm::Value *v) {
   llvm::LLVMContext &Ctx = builder.getContext();
   llvm::Value *cast;
   llvm::Value *load;
@@ -136,11 +161,6 @@ bool ObliviousHashInsertionPass::insertHashBuilder(llvm::IRBuilder<> &builder,
   arg_values.push_back(cast);
   llvm::ArrayRef<llvm::Value *> args(arg_values);
 
-  // STATS: add the instruction  to stats
-  stats.addNumberOfHashCalls(1);
-  stats.addNumberOfProtectedInstructions(1);
-  if (isGuard)
-    stats.addNumberOfProtectedGuardInstructions(1);
   builder.CreateCall(get_random(2) ? hashFunc1 : hashFunc2, args);
   return true;
 }
@@ -156,8 +176,13 @@ void ObliviousHashInsertionPass::parse_skip_tags() {
     hasTagsToSkip = false;
   }
 }
-bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I) {
+bool ObliviousHashInsertionPass::instrumentInst(
+    llvm::Instruction &I, const vector<bool> *argumentInputDependency) {
   bool hashInserted = false;
+  bool isGuard = isInstAGuard(I);
+  bool isCallGuard = false;
+  int protectedArguments = 0;
+
   if (llvm::CmpInst::classof(&I)) {
     auto *cmp = llvm::dyn_cast<llvm::CmpInst>(&I);
     llvm::LLVMContext &Ctx = I.getModule()->getContext();
@@ -175,91 +200,91 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I) {
                 cmpExt, llvm::ConstantInt::get(llvm::Type::getInt8Ty(Ctx), 1))),
         llvm::ConstantInt::get(llvm::Type::getInt8Ty(Ctx),
                                cmp->getPredicate()));
-    bool isGuard = false;
-    if (auto *metadata = I.getMetadata(GUARD_META_DATA)) {
-      isGuard = true;
+    // bool isGuard = isInstAGuard(I);
+    // hashInserted = insertHashBuilder(builder, val, isGuard);
+    auto *AddInst = dyn_cast<Instruction>(val);
+    hashInserted = insertHash(*AddInst, val, false);
+    if (!hashInserted) {
+      errs() << "Potential ERR: insertHash failed for";
+      val->dump();
     }
-    hashInserted = insertHashBuilder(builder, val, isGuard);
-  }
-  else if (llvm::ReturnInst::classof(&I)) {
+  } else if (llvm::ReturnInst::classof(&I)) {
     auto *ret = llvm::dyn_cast<llvm::ReturnInst>(&I);
     auto *val = ret->getReturnValue();
     if (val) {
       hashInserted = insertHash(I, val, true);
     }
-  }
-  else if (llvm::LoadInst::classof(&I)) {
+  } else if (llvm::LoadInst::classof(&I)) {
     auto *load = llvm::dyn_cast<llvm::LoadInst>(&I);
     hashInserted = insertHash(I, load, false);
-  }
-  else if (llvm::StoreInst::classof(&I)) {
+  } else if (llvm::StoreInst::classof(&I)) {
     auto *store = llvm::dyn_cast<llvm::StoreInst>(&I);
     llvm::Value *v = store->getPointerOperand();
     hashInserted = insertHash(I, v, false);
-  }
-  else if (llvm::BinaryOperator::classof(&I)) {
+  } else if (llvm::BinaryOperator::classof(&I)) {
     auto *bin = llvm::dyn_cast<llvm::BinaryOperator>(&I);
     if (bin->getOpcode() == llvm::Instruction::Add) {
       hashInserted = insertHash(I, bin, false);
     }
-  }
-  else if (llvm::CallInst::classof(&I)) {
+  } else if (llvm::CallInst::classof(&I)) {
+    llvm::dbgs() << "Processing call instruction..\n";
     auto *call = llvm::dyn_cast<llvm::CallInst>(&I);
+    call->dump();
     auto called_function = call->getCalledFunction();
     if (called_function == nullptr || called_function->isIntrinsic() ||
         called_function == hashFunc1 || called_function == hashFunc2) {
       return false;
     }
-    llvm::dbgs() << "Processing call instruction..\n";
-    call->print(llvm::dbgs(), true);
-    llvm::dbgs() << "\n";
-    bool guardCallHasHashedArgument = false;
+
     for (int i = 0; i < call->getNumArgOperands(); ++i) {
+      bool argHashed = false;
       if (llvm::ConstantInt::classof(call->getArgOperand(i))) {
         auto *operand =
             llvm::dyn_cast<llvm::ConstantInt>(call->getArgOperand(i));
         llvm::dbgs() << "***Handling a call instruction***\n";
-        // insertHash which increments
-        // the number or protected instructions.
-        // while this is just an argument of a call inst
-        // therefore, we subtract 1 to even out the result
-        stats.addNumberOfProtectedInstructions(-1);
-        stats.addNumberOfProtectedArguments(1);
-        if (auto *metadata = I.getMetadata(GUARD_META_DATA)) {
-          stats.addNumberOfProtectedGuardInstructions(-1);
-          stats.addNumberOfProtectedGuardArguments(1);
-          guardCallHasHashedArgument = true;
+
+        argHashed = insertHash(I, operand, false);
+        if (!argHashed) {
+          errs() << "ERR. constant int argument passed to insert hash, but "
+                    "failed to hash\n";
+          operand->dump();
         }
-	//one successful insertion is enough to signal hash insertion
-        hashInserted = hashInserted || insertHash(I, operand, false);
-      } // See #15 input dependent load instructions break hash
-      /*else if (llvm::LoadInst::classof(call->getArgOperand(i))) {
-        auto *load = llvm::dyn_cast<llvm::Instruction>(call->getArgOperand(i));
-	//instrumentInst will call insertHash which increments
-	//the number or protected instructions. 
-	//while this is just an argument of a call inst
-	//therefore, we subtract 1 to even out the result
-	stats.addNumberOfProtectedInstructions(-1);
-	stats.addNumberOfProtectedArguments(1);
-	if (auto *metadata = I.getMetadata(GUARD_META_DATA)) {
-		stats.addNumberOfProtectedGuardInstructions(-1);
-		stats.addNumberOfProtectedGuardArguments(1);
-	}
-        hashInserted = instrumentInst(*load);
-      } */ else {
+        if (argHashed)
+          protectedArguments++;
+      } else if (llvm::LoadInst::classof(call->getArgOperand(i))) {
+        auto *load = llvm::dyn_cast<llvm::LoadInst>(call->getArgOperand(i));
+        auto *inst = llvm::dyn_cast<llvm::Instruction>(call->getArgOperand(i));
+        // See #15 input dependent load instructions break hash
+        if (!(*argumentInputDependency)[i]) {
+          argHashed = insertHash(*inst, load, false);
+          if (argHashed) {
+            protectedArguments++;
+          } else {
+            errs() << "ERR. constant int argument passed to insert hash, but "
+                      "failed to hash\n";
+            load->dump();
+          }
+        } else {
+          llvm::dbgs() << "Can't handle input dependent load operand ";
+          load->dump();
+        }
+      } else {
         llvm::dbgs() << "Can't handle this operand ";
         call->getArgOperand(i)->print(llvm::dbgs(), true);
         llvm::dbgs() << " of the call ";
         call->print(llvm::dbgs(), true);
         llvm::dbgs() << "\n";
       }
+      hashInserted = hashInserted || argHashed;
     }
-    // #20 increment number of protected guard instruction,
-    // when at least one of the guard call arguments are
-    // incorporated into the hash
-    if (guardCallHasHashedArgument) {
-      stats.addNumberOfProtectedGuardInstructions(1);
-      guardCallHasHashedArgument = false;
+    isCallGuard = isGuard;
+    // When call is a guard we compute implicit OH stats
+    // See #37
+    if (hashInserted && isCallGuard) {
+      unsigned int checkeeSize = getUniqueCheckeeFunctionInstructionCount(I);
+      if (checkeeSize > 0)
+	dbgs()<<"Implicit protection instructions to add:"<<checkeeSize<<"\n";
+        stats.addNumberOfImplicitlyProtectedInstructions(checkeeSize);
     }
   }
   /*if (llvm::AtomicRMWInst::classof(&I)) {
@@ -268,6 +293,26 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I) {
       armw->getValOperand()->getType()->print(llvm::dbgs());
       llvm::dbgs() << "\n";
   }*/
+
+  // Update STATS
+  //
+  if (hashInserted) {
+    stats.addNumberOfHashCalls(1);
+    stats.addNumberOfProtectedInstructions(1);
+    if (isCallGuard) {
+      //#20 increment number of protected guard instruction,
+      // when at least one of the guard call arguments are
+      // incorporated into the hash
+      stats.addNumberOfProtectedGuardInstructions(1);
+
+      stats.addNumberOfProtectedGuardArguments(protectedArguments);
+    } else {
+      stats.addNumberOfProtectedArguments(protectedArguments);
+    }
+  }
+
+  /// END STATS
+
   return hashInserted;
 }
 
@@ -383,13 +428,16 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
   bool modified = false;
   unique_id_generator::get().reset();
   srand(time(NULL));
-
+  this->guardMetadataKindID = M.getMDKindID(GUARD_META_DATA);
+  if (this->guardMetadataKindID > 0) {
+    dbgs() << "'guard' metadata was found in the input bitcode\n";
+  } else {
+    dbgs() << "No 'guard' metadata was found\n";
+  }
   hashPtrs.reserve(num_hash);
   const auto &input_dependency_info =
       getAnalysis<input_dependency::InputDependencyAnalysisPass>()
           .getInputDependencyAnalysis();
-  // const auto &assert_function_info =
-  //    getAnalysis<AssertFunctionMarkPass>().get_assert_functions_info();
   const auto &function_info =
       getAnalysis<FunctionMarkerPass>().get_functions_info();
   llvm::dbgs() << "Recieved marked functions "
@@ -450,14 +498,9 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
         continue;
       }
       for (auto &I : B) {
+        vector<bool> argumentInputDependency;
         if (auto phi = llvm::dyn_cast<llvm::PHINode>(&I)) {
           continue;
-        }
-        if (auto callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
-          auto calledF = callInst->getCalledFunction();
-          if (calledF && calledF->getName() == "assert") {
-            continue;
-          }
         }
         if (!F_input_dependency_info->isInputDependent(&I)) {
           // llvm::dbgs() << "I: " << I << "\n";
@@ -479,8 +522,22 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
               }
             }
           }
+          if (auto callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
+            auto calledF = callInst->getCalledFunction();
+            if (calledF && calledF->getName() == "assert") {
+              continue;
+            }
+            // evaluate dependency of call load arguments
+            for (int i = 0; i < callInst->getNumArgOperands(); ++i) {
+              if (auto *load = llvm::dyn_cast<llvm::LoadInst>(
+                      callInst->getArgOperand(i))) {
+                argumentInputDependency.push_back(
+                    F_input_dependency_info->isInputDependent(load));
+              }
+            }
+          }
 
-          hashUpdated = instrumentInst(I);
+          hashUpdated = instrumentInst(I, &argumentInputDependency);
           modified = true;
         }
         if (function_callsite_data.isFunctionCalledInLoop(&F)) {
@@ -492,21 +549,6 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
         if (loop != nullptr) {
           continue;
         }
-        // Filter assert functions, unless there is no assert function
-        // specified,
-        // in which case all functions are good to go
-        /*if (assert_function_info.get_assert_functions().size() == 0 ||
-            !assert_function_info.is_assert_function(&F)) {
-          insertLogger(I);
-          llvm::dbgs() << "InsertLogger included function:" << F.getName()
-                       << " because it is not in the skip  assert list!\n";
-
-          modified = true;
-        } else {
-          llvm::dbgs() << "InsertLogger skipped function:" << F.getName()
-                       << " because it is in the skip assert list!\n";
-        }*/
-
         // We shouldn't insert asserts when there was no hash update, see #9
         if (!hashUpdated) {
           llvm::dbgs() << "InsertLogger skipped because there was no hash "
@@ -516,11 +558,12 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
         if (function_info->get_functions().size() == 0 ||
             !function_info->is_function(&F)) {
           // Begin #24
-          // If the function has multiple callsites it should get a assert with
-          // multiple correct hash values, otherwise pather keeps the last call
+          // If the function has multiple callsites it should get an assert with
+          // multiple correct hash values, otherwise patcher keeps the last call
           // as the correct hash. Boom! This breaks OH and signals tampering...
           // for now we insert no asserts in functions with multiple callsites
           // moving forward we should get asserts with multiple place holders
+	  // There is already an issue for this - #22
           int callsites =
               function_callsite_data.getNumberOfFunctionCallSites(&F);
           llvm::dbgs() << "InsertLogger evaluating function:" << F.getName()

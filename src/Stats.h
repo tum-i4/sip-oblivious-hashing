@@ -7,6 +7,7 @@
 using namespace llvm;
 class OHStats{
 	private:
+		int numberOfImplicitlyProtectedInstructions=0;
 		int numberOfProtectedInstructions=0;
 		int numberOfProtectedArguments=0;
 		int numberOfHashVariables=0;
@@ -15,6 +16,7 @@ class OHStats{
 		int numberOfProtectedGuardInstructions = 0;
 		int numberOfProtectedGuardArguments = 0;
 	public:
+		void addNumberOfImplicitlyProtectedInstructions(int);
 		void addNumberOfProtectedInstructions(int);
 		void addNumberOfProtectedArguments(int);
 		void setNumberOfHashVariables(int);
