@@ -63,6 +63,6 @@ gcc -g -rdynamic out.o response.o -o out
 export LD_PRELOAD="/home/sip/self-checksumming/hook/build/libminm.so" 
 
 #Patch using GDB
-python $OH_PATH/patcher/patchAsserts.py out out_patched 
+python $OH_PATH/patcher/patchAsserts.py -b out -n out_patched -s oh.stats 
 echo 'Generated bianry is out_patched ...'
 chmod +x out_patched
