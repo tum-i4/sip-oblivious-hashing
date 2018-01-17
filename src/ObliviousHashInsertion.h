@@ -2,17 +2,19 @@
 
 #include "llvm/Pass.h"
 
+#include "input-dependency/InputDependencyAnalysisPass.h"
 #include "llvm/IR/IRBuilder.h"
 #include <vector>
 #include "Stats.h"
 
 namespace llvm {
-class Instruction;
-class Value;
+class CallInst;
 class CmpInst;
 class Constant;
+class GetElementPtrInst;
 class GlobalVariable;
-class CallInst;
+class Instruction;
+class Value;
 }
 
 namespace oh {
@@ -31,11 +33,11 @@ private:
   void setup_hash_values(llvm::Module &M);
   bool insertHashBuilder(llvm::IRBuilder<> &builder, llvm::Value *v);
   bool insertHash(llvm::Instruction &I, llvm::Value *v, bool before);
-  bool instrumentInst(llvm::Instruction&,const std::vector<bool>&);
+  bool instrumentInst(llvm::Instruction& I);
   template <class CallInstTy>
   bool instrumentCallInst(CallInstTy* call,
-                          const std::vector<bool>& argumentInputDependency,
                           int& protectedArguments);
+  bool instrumentGetElementPtrInst(llvm::GetElementPtrInst* getElemPtr);
   bool instrumentCmpInst(llvm::CmpInst* I);
   void insertLogger(llvm::Instruction &I);
   void insertLogger(llvm::IRBuilder<> &builder, llvm::Instruction &I,
@@ -45,6 +47,8 @@ private:
 
 private:
   OHStats stats;
+  using InputDependencyAnalysisType = input_dependency::InputDependencyAnalysisPass::InputDependencyAnalysisType;
+  InputDependencyAnalysisType input_dependency_info;
   bool hasTagsToSkip;
   unsigned guardMetadataKindID;
   std::vector<std::string> skipTags;
