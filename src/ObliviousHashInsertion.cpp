@@ -2,14 +2,10 @@
 #include "FunctionCallSitesInformation.h"
 #include "Utils.h"
 
-//#include "input-dependency/FunctionInputDependencyResultInterface.h"
-//#include "input-dependency/InputDependencyAnalysisPass.h"
-
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Function.h"
-#include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LegacyPassManager.h"
@@ -31,8 +27,10 @@
 #include "../../self-checksumming/src/FunctionFilter.h"
 #include "../../self-checksumming/src/FunctionMarker.h"
 
+#include "input-dependency/FunctionInputDependencyResultInterface.h"
+#include "input-dependency/InputDependencyAnalysisPass.h"
+
 using namespace llvm;
-using namespace std;
 namespace oh {
 
 namespace {
@@ -176,42 +174,18 @@ void ObliviousHashInsertionPass::parse_skip_tags() {
     hasTagsToSkip = false;
   }
 }
-bool ObliviousHashInsertionPass::instrumentInst(
-    llvm::Instruction &I, const vector<bool> *argumentInputDependency) {
+
+bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I,
+                                                const std::vector<bool>& argumentInputDependency) {
   bool hashInserted = false;
-  bool isGuard = isInstAGuard(I);
   bool isCallGuard = false;
   int protectedArguments = 0;
 
-  if (llvm::CmpInst::classof(&I)) {
-    auto *cmp = llvm::dyn_cast<llvm::CmpInst>(&I);
-    llvm::LLVMContext &Ctx = I.getModule()->getContext();
-    llvm::IRBuilder<> builder(&I);
-    builder.SetInsertPoint(I.getParent(), ++builder.GetInsertPoint());
-
-    // Insert the transformation of the cmp output into something more usable by
-    // the hash function.
-    llvm::Value *cmpExt =
-        builder.CreateZExtOrBitCast(cmp, llvm::Type::getInt8Ty(Ctx));
-    llvm::Value *val = builder.CreateAdd(
-        builder.CreateMul(
-            llvm::ConstantInt::get(llvm::Type::getInt8Ty(Ctx), 64),
-            builder.CreateAdd(
-                cmpExt, llvm::ConstantInt::get(llvm::Type::getInt8Ty(Ctx), 1))),
-        llvm::ConstantInt::get(llvm::Type::getInt8Ty(Ctx),
-                               cmp->getPredicate()));
-    // bool isGuard = isInstAGuard(I);
-    // hashInserted = insertHashBuilder(builder, val, isGuard);
-    auto *AddInst = dyn_cast<Instruction>(val);
-    hashInserted = insertHash(*AddInst, val, false);
-    if (!hashInserted) {
-      errs() << "Potential ERR: insertHash failed for";
-      val->dump();
-    }
+  if (auto* cmp = llvm::dyn_cast<llvm::CmpInst>(&I)) {
+      hashInserted = instrumentCmpInst(cmp);
   } else if (llvm::ReturnInst::classof(&I)) {
     auto *ret = llvm::dyn_cast<llvm::ReturnInst>(&I);
-    auto *val = ret->getReturnValue();
-    if (val) {
+    if (auto *val = ret->getReturnValue()) {
       hashInserted = insertHash(I, val, true);
     }
   } else if (llvm::LoadInst::classof(&I)) {
@@ -226,80 +200,26 @@ bool ObliviousHashInsertionPass::instrumentInst(
     if (bin->getOpcode() == llvm::Instruction::Add) {
       hashInserted = insertHash(I, bin, false);
     }
-  } else if (llvm::CallInst::classof(&I)) {
-    llvm::dbgs() << "Processing call instruction..\n";
-    auto *call = llvm::dyn_cast<llvm::CallInst>(&I);
-    call->dump();
-    auto called_function = call->getCalledFunction();
-    if (called_function == nullptr || called_function->isIntrinsic() ||
-        called_function == hashFunc1 || called_function == hashFunc2) {
-      return false;
-    }
-
-    for (int i = 0; i < call->getNumArgOperands(); ++i) {
-      bool argHashed = false;
-      if (llvm::ConstantInt::classof(call->getArgOperand(i))) {
-        auto *operand =
-            llvm::dyn_cast<llvm::ConstantInt>(call->getArgOperand(i));
-        llvm::dbgs() << "***Handling a call instruction***\n";
-
-        argHashed = insertHash(I, operand, false);
-        if (!argHashed) {
-          errs() << "ERR. constant int argument passed to insert hash, but "
-                    "failed to hash\n";
-          operand->dump();
-        }
-        if (argHashed)
-          protectedArguments++;
-      } else if (llvm::LoadInst::classof(call->getArgOperand(i))) {
-        auto *load = llvm::dyn_cast<llvm::LoadInst>(call->getArgOperand(i));
-        auto *inst = llvm::dyn_cast<llvm::Instruction>(call->getArgOperand(i));
-        // See #15 input dependent load instructions break hash
-        if (!(*argumentInputDependency)[i]) {
-          argHashed = insertHash(*inst, load, false);
-          if (argHashed) {
-            protectedArguments++;
-          } else {
-            errs() << "ERR. constant int argument passed to insert hash, but "
-                      "failed to hash\n";
-            load->dump();
-          }
-        } else {
-          llvm::dbgs() << "Can't handle input dependent load operand ";
-          load->dump();
-        }
-      } else {
-        llvm::dbgs() << "Can't handle this operand ";
-        call->getArgOperand(i)->print(llvm::dbgs(), true);
-        llvm::dbgs() << " of the call ";
-        call->print(llvm::dbgs(), true);
-        llvm::dbgs() << "\n";
-      }
-      hashInserted = hashInserted || argHashed;
-    }
-    isCallGuard = isGuard;
-    // When call is a guard we compute implicit OH stats
-    // See #37
-    if (hashInserted && isCallGuard) {
-      unsigned int checkeeSize = getUniqueCheckeeFunctionInstructionCount(I);
-      if (checkeeSize > 0)
-	dbgs()<<"Implicit protection instructions to add:"<<checkeeSize<<"\n";
-        stats.addNumberOfImplicitlyProtectedInstructions(checkeeSize);
-    }
+  } else if (auto *call = llvm::dyn_cast<llvm::CallInst>(&I)) {
+      hashInserted = instrumentCallInst(call, argumentInputDependency, protectedArguments);
+      isCallGuard = isInstAGuard(I);
+  } else if (auto* invoke = llvm::dyn_cast<llvm::InvokeInst>(&I)) {
+      hashInserted = instrumentCallInst(invoke, argumentInputDependency, protectedArguments);
+      isCallGuard = isInstAGuard(I);
   }
-  /*if (llvm::AtomicRMWInst::classof(&I)) {
-      auto *armw = llvm::dyn_cast<llvm::AtomicRMWInst>(&I);
-      llvm::dbgs() << "rmw: ";
-      armw->getValOperand()->getType()->print(llvm::dbgs());
-      llvm::dbgs() << "\n";
-  }*/
 
-  // Update STATS
-  //
   if (hashInserted) {
     stats.addNumberOfHashCalls(1);
     stats.addNumberOfProtectedInstructions(1);
     if (isCallGuard) {
+        // When call is a guard we compute implicit OH stats
+        // See #37
+        unsigned int checkeeSize = getUniqueCheckeeFunctionInstructionCount(I);
+        if (checkeeSize > 0) {
+            dbgs()<<"Implicit protection instructions to add:"<<checkeeSize<<"\n";
+        }
+        stats.addNumberOfImplicitlyProtectedInstructions(checkeeSize);
+
       //#20 increment number of protected guard instruction,
       // when at least one of the guard call arguments are
       // incorporated into the hash
@@ -315,6 +235,84 @@ bool ObliviousHashInsertionPass::instrumentInst(
 
   return hashInserted;
 }
+
+template <class CallInstTy>
+bool ObliviousHashInsertionPass::instrumentCallInst(CallInstTy* call, 
+                                                    const std::vector<bool>& argumentInputDependency,
+                                                    int& protectedArguments)
+{
+    bool hashInserted = false;
+    llvm::dbgs() << "Processing call instruction..\n";
+    call->dump();
+    auto called_function = call->getCalledFunction();
+    if (called_function == nullptr || called_function->isIntrinsic() ||
+            called_function == hashFunc1 || called_function == hashFunc2) {
+        return false;
+    }
+
+    for (int i = 0; i < call->getNumArgOperands(); ++i) {
+        auto* operand = call->getArgOperand(i);
+        bool argHashed = false;
+        if (auto *const_op = llvm::dyn_cast<llvm::ConstantInt>(operand)) {
+            llvm::dbgs() << "***Handling a call instruction***\n";
+            argHashed = insertHash(*call, const_op, false);
+            if (!argHashed) {
+                errs() << "ERR. constant int argument passed to insert hash, but "
+                    "failed to hash\n";
+                const_op->dump();
+            } else {
+                ++protectedArguments;
+            }
+        } else if (auto *load = llvm::dyn_cast<llvm::LoadInst>(operand)) {
+            if (!argumentInputDependency[i]) {
+                argHashed = insertHash(*load, load, false);
+                if (argHashed) {
+                    ++protectedArguments;
+                } else {
+                    errs() << "ERR. constant int argument passed to insert hash, but "
+                        "failed to hash\n";
+                    load->dump();
+                }
+            } else {
+                llvm::dbgs() << "Can't handle input dependent load operand ";
+                load->dump();
+            }
+        } else {
+            llvm::dbgs() << "Can't handle this operand " << *operand
+                         << " of the call " << *call << "\n";
+        }
+        hashInserted = hashInserted || argHashed;
+    }
+    return hashInserted;
+}
+
+
+bool ObliviousHashInsertionPass::instrumentCmpInst(llvm::CmpInst* I)
+{
+    llvm::LLVMContext &Ctx = I->getModule()->getContext();
+    llvm::IRBuilder<> builder(I);
+    builder.SetInsertPoint(I->getParent(), ++builder.GetInsertPoint());
+
+    // Insert the transformation of the cmp output into something more usable by
+    // the hash function.
+    llvm::Value *cmpExt =
+        builder.CreateZExtOrBitCast(I, llvm::Type::getInt8Ty(Ctx));
+    llvm::Value *val = builder.CreateAdd(
+            builder.CreateMul(
+                llvm::ConstantInt::get(llvm::Type::getInt8Ty(Ctx), 64),
+                builder.CreateAdd(
+                    cmpExt, llvm::ConstantInt::get(llvm::Type::getInt8Ty(Ctx), 1))),
+            llvm::ConstantInt::get(llvm::Type::getInt8Ty(Ctx),
+                I->getPredicate()));
+    auto *AddInst = dyn_cast<Instruction>(val);
+    bool hashInserted = insertHash(*AddInst, val, false);
+    if (!hashInserted) {
+        errs() << "Potential ERR: insertHash failed for";
+        val->dump();
+    }
+    return hashInserted;
+}
+
 
 void ObliviousHashInsertionPass::insertLogger(llvm::Instruction &I) {
   // no hashing has been done. no meaning to log
@@ -360,7 +358,7 @@ void ObliviousHashInsertionPass::insertLogger(llvm::IRBuilder<> &builder,
 
   ConstantInt *const_int = (ConstantInt *)ConstantInt::get(
       Type::getInt64Ty(Ctx), APInt(64, (assertCnt)*1000000000000));
-  vector<Value *> values = {hashPtrs.at(hashToLogIdx), const_int};
+  std::vector<Value *> values = {hashPtrs.at(hashToLogIdx), const_int};
   ArrayRef<Value *> args(values);
   // CallInst *assertI = CallInst::Create(logger, args);
   /*if (after) {
@@ -498,7 +496,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
         continue;
       }
       for (auto &I : B) {
-        vector<bool> argumentInputDependency;
+        std::vector<bool> argumentInputDependency;
         if (auto phi = llvm::dyn_cast<llvm::PHINode>(&I)) {
           continue;
         }
@@ -537,7 +535,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
             }
           }
 
-          hashUpdated = instrumentInst(I, &argumentInputDependency);
+          hashUpdated = instrumentInst(I, argumentInputDependency);
           modified = true;
         }
         if (function_callsite_data.isFunctionCalledInLoop(&F)) {
