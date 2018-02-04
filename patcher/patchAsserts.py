@@ -64,8 +64,8 @@ def main():
     if assert_count>0:
         #Verify that the number of patches is equal to the number of asserts in the binary
         if count_patched != assert_count:
-            print 'ERR. Some asserts are not patched! Patched=',count_patched," Asserts=",assert_count
-            exit(1)
+            print 'WARNING. Some asserts are not patched! Patched=',count_patched," Asserts=",assert_count
+            #exit(1)
         else:
             print 'Info. Patched=',count_patched," Asserts=",assert_count
 
