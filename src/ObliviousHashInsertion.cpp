@@ -34,6 +34,96 @@ namespace oh {
 
 namespace {
 unsigned get_random(unsigned range) { return rand() % range; }
+
+bool skipFunction(llvm::Function& F,
+                  input_dependency::InputDependencyAnalysisPass::InputDependencyAnalysisType input_dependency_info,
+                  const FunctionInformation* function_filter_info)
+{
+    if (F.isDeclaration() || F.isIntrinsic()) {
+        return true;
+    }
+    if (function_filter_info->get_functions().size() != 0 && !function_filter_info->is_function(&F)) {
+        llvm::dbgs() << " Skipping function per FilterFunctionPass:" << F.getName() << "\n";
+        return true;
+    }
+    auto F_input_dependency_info = input_dependency_info->getAnalysisInfo(&F);
+    if (!F_input_dependency_info) {
+        llvm::dbgs() << "No input dep info for function " << F.getName() << ". Skip\n";
+        return true;
+    }
+    // no hashes for functions called from non deterministc blocks
+    if (F_input_dependency_info->isInputDepFunction() && !F_input_dependency_info->isExtractedFunction()) {
+        llvm::dbgs() << "Function " << F.getName() << " is input dependent. Skip\n";
+        return true;
+    }
+    return false;
+}
+
+bool skipInstruction(llvm::Instruction& I,
+                     const input_dependency::InputDependencyAnalysisInterface::InputDepResType& F_input_dependency_info)
+{
+    if (auto phi = llvm::dyn_cast<llvm::PHINode>(&I)) {
+        return true;
+    }
+    if (auto callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
+        auto calledF = callInst->getCalledFunction();
+        if (calledF && (calledF->getName() == "assert"
+            || calledF->getName() == "hash1" || calledF->getName() == "hash2")) {
+            return true;
+        }
+        // evaluate dependency of call load arguments
+    }
+    return false;
+}
+
+bool canInsertAssertionAtLocation(llvm::Function& F,
+                                  llvm::BasicBlock& B,
+                                  bool hashUpdated,
+                                  const FunctionCallSiteData& function_callsite_data,
+                                  const FunctionInformation* function_info,
+                                  llvm::LoopInfo& LI)
+{
+    // We shouldn't insert asserts when there was no hash update, see #9
+    if (!hashUpdated) {
+        llvm::dbgs() << "InsertLogger skipped because there was no hash "
+                        "update in between!\n";
+        return false;
+    }
+    if (function_callsite_data.isFunctionCalledInLoop(&F)) {
+        llvm::dbgs() << "InsertLogger skipped function:" << F.getName()
+                     << " because it is called from a loop!\n";
+        return false;
+    }
+
+    auto loop = LI.getLoopFor(&B);
+    if (loop != nullptr) {
+        return false;
+    }
+    if (!function_info->get_functions().empty() && function_info->is_function(&F)) {
+        llvm::dbgs() << "InsertLogger skipped function:" << F.getName()
+                     << " because it is in the skip assert list!\n";
+        return false;
+    }
+    // Begin #24
+    // If the function has multiple callsites it should get an assert with
+    // multiple correct hash values, otherwise patcher keeps the last call
+    // as the correct hash. Boom! This breaks OH and signals tampering...
+    // for now we insert no asserts in functions with multiple callsites
+    // moving forward we should get asserts with multiple place holders
+    // There is already an issue for this - #22
+    int callsites = function_callsite_data.getNumberOfFunctionCallSites(&F);
+    llvm::dbgs() << "InsertLogger evaluating function:" << F.getName()
+                 << " callsites detected =" << callsites << "\n";
+    if (callsites > 1) {
+        llvm::dbgs() << "InsertLogger skipped function:" << F.getName()
+                     << " because it has more than one call site, see #24.!\n";
+        return false;
+    }
+    // END #24
+    llvm::dbgs() << "InsertLogger included function:" << F.getName()
+                 << " because it is not in the skip  assert list!\n";
+    return true;
+}
 }
 
 char ObliviousHashInsertionPass::ID = 0;
@@ -159,6 +249,22 @@ void ObliviousHashInsertionPass::parse_skip_tags() {
     llvm::dbgs() << "No tags were supplied to be skipped! \n";
     hasTagsToSkip = false;
   }
+}
+
+bool ObliviousHashInsertionPass::hasSkipTag(llvm::Instruction& I)
+{
+    // skip instrumenting instructions whose tag matches the skip tag list
+    if (this->hasTagsToSkip && I.hasMetadataOtherThanDebugLoc()) {
+        llvm::dbgs() << "Found instruction with tags ad we have set tags\n";
+        for (auto tag : skipTags) {
+            llvm::dbgs() << tag << "\n";
+            if (auto *metadata = I.getMetadata(tag)) {
+                llvm::dbgs() << "Skipping tagged instruction: " << I << "\n";
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I) {
@@ -316,8 +422,25 @@ bool ObliviousHashInsertionPass::instrumentCmpInst(llvm::CmpInst* I)
     return hashInserted;
 }
 
+bool ObliviousHashInsertionPass::instrumentInstArguments(llvm::Instruction& I)
+{
+    // load/store arguments are processed in instrumentInst
+    // TODO: what other instructions may skip?
+    if (llvm::dyn_cast<llvm::StoreInst>(&I)
+        || llvm::dyn_cast<llvm::LoadInst>(&I)
+        || llvm::dyn_cast<llvm::AllocaInst>(&I)) {
+        return false;
+    }
+    bool hashInserted = false;
+    for (auto op = I.op_begin(); op != I.op_end(); ++op) {
+        if (auto const_op = llvm::dyn_cast<llvm::ConstantInt>(op)) {
+            hashInserted |= insertHash(I, const_op, false);
+        }
+    }
+    return hashInserted;
+}
 
-void ObliviousHashInsertionPass::insertLogger(llvm::Instruction &I) {
+void ObliviousHashInsertionPass::insertAssert(llvm::Instruction &I) {
   // no hashing has been done. no meaning to log
   if (usedHashIndices.empty()) {
     return;
@@ -326,11 +449,11 @@ void ObliviousHashInsertionPass::insertLogger(llvm::Instruction &I) {
   llvm::IRBuilder<> builder(&I);
   builder.SetInsertPoint(I.getParent(), builder.GetInsertPoint());
 
-  // logger for cmp instruction should have been added
+  // assert for cmp instruction should have been added
   if (llvm::CmpInst::classof(&I)) {
     // log the last value which contains hash for this cmp instruction
     // builder.SetInsertPoint(I.getParent(), ++builder.GetInsertPoint());
-    insertLogger(builder, I, usedHashIndices.back());
+    insertAssert(builder, I, usedHashIndices.back());
     return;
   }
 
@@ -341,18 +464,18 @@ void ObliviousHashInsertionPass::insertLogger(llvm::Instruction &I) {
     auto called_function = callInst->getCalledFunction();
     if (called_function != nullptr && !called_function->isIntrinsic() &&
         called_function != hashFunc1 && called_function != hashFunc2) {
-      // always insert logger before call instructions
-      insertLogger(builder, I, random_hash_idx);
+      // always insert assert before call instructions
+      insertAssert(builder, I, random_hash_idx);
       return;
     }
   }
   if (get_random(2)) {
     // insert randomly
-    insertLogger(builder, I, random_hash_idx);
+    insertAssert(builder, I, random_hash_idx);
   }
 }
 int assertCnt = 1;
-void ObliviousHashInsertionPass::insertLogger(llvm::IRBuilder<> &builder,
+void ObliviousHashInsertionPass::insertAssert(llvm::IRBuilder<> &builder,
                                               llvm::Instruction &instr,
                                               unsigned hashToLogIdx) {
 
@@ -367,7 +490,7 @@ void ObliviousHashInsertionPass::insertLogger(llvm::IRBuilder<> &builder,
   // Stats add the assert call
   stats.addNumberOfAssertCalls(1);
 
-  builder.CreateCall(logger, args);
+  builder.CreateCall(assert, args);
 }
 
 void ObliviousHashInsertionPass::setup_functions(llvm::Module &M) {
@@ -379,7 +502,7 @@ void ObliviousHashInsertionPass::setup_functions(llvm::Module &M) {
   hashFunc1 = M.getOrInsertFunction("hash1", function_type);
   hashFunc2 = M.getOrInsertFunction("hash2", function_type);
 
-  logger = cast<Function>(
+  assert = cast<Function>(
       M.getOrInsertFunction("assert", Type::getVoidTy(M.getContext()),
                             Type::getInt64PtrTy(M.getContext()),
                             Type::getInt64Ty(M.getContext()), NULL));
@@ -412,16 +535,13 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
   }
   hashPtrs.reserve(num_hash);
   input_dependency_info = getAnalysis<input_dependency::InputDependencyAnalysisPass>().getInputDependencyAnalysis();
-  const auto &function_info =
-      getAnalysis<FunctionMarkerPass>().get_functions_info();
+  const auto &function_info = getAnalysis<FunctionMarkerPass>().get_functions_info();
   llvm::dbgs() << "Recieved marked functions "
                << function_info->get_functions().size() << "\n";
-  const auto &function_filter_info =
-      getAnalysis<FunctionFilterPass>().get_functions_info();
+  const auto &function_filter_info = getAnalysis<FunctionFilterPass>().get_functions_info();
   llvm::dbgs() << "Recieved filter functions "
                << function_filter_info->get_functions().size() << "\n";
-  const auto &function_callsite_data =
-      getAnalysis<FunctionCallSiteInformationPass>().getAnalysisResult();
+  const auto &function_callsite_data = getAnalysis<FunctionCallSiteInformationPass>().getAnalysisResult();
 
   int countProcessedFuncs = 0;
   // Get the function to call from our runtime library.
@@ -430,129 +550,47 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
   setup_hash_values(M);
 
   for (auto &F : M) {
-    bool hashUpdated = false;
-    // No input dependency info for declarations and instrinsics.
-    if (F.isDeclaration() || F.isIntrinsic()) {
-      continue;
-    }
-    if (function_filter_info->get_functions().size() != 0 &&
-        !function_filter_info->is_function(&F)) {
-      llvm::dbgs() << " Skipping function per FilterFunctionPass:"
-                   << F.getName() << "\n";
-      continue;
-    }
-    llvm::dbgs() << " Processing function:" << F.getName() << "\n";
-    countProcessedFuncs++;
-
-    auto F_input_dependency_info = input_dependency_info->getAnalysisInfo(&F);
-    if (!F_input_dependency_info) {
-      llvm::dbgs() << "No input dep info for function " << F.getName()
-                   << ". Skip\n";
-      continue;
-    }
-
-    // no hashes for functions called from non deterministc blocks
-    if (F_input_dependency_info->isInputDepFunction()) {
-      llvm::dbgs() << "Function " << F.getName()
-                   << " is input dependent. Skip\n";
-      continue;
-    }
-
-    /*if (!function_calls.is_function_input_independent(&F)) {
-     llvm::dbgs() << "Skipping input dependent function "<<F.getName()<<"\n";
-     continue;
-   } else {
-     llvm::dbgs()<<"Including input independent function "<<F.getName()<<"\n";
-   }*/
-    llvm::LoopInfo &LI =
-        getAnalysis<llvm::LoopInfoWrapperPass>(F).getLoopInfo();
-    for (auto &B : F) {
-      if (F_input_dependency_info->isInputDependentBlock(&B) &&
-          &F.back() != &B) {
-        continue;
-      }
-      for (auto &I : B) {
-        if (auto phi = llvm::dyn_cast<llvm::PHINode>(&I)) {
+      if (skipFunction(F, input_dependency_info, function_filter_info)) {
           continue;
-        }
-        if (!F_input_dependency_info->isInputDependent(&I)) {
-          // llvm::dbgs() << "I: " << I << "\n";
-          /*if (auto callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
-               llvm::dbgs()<<"Input independent call instruction: ";
-               callInst->print(llvm::dbgs(),true);
-               llvm::dbgs()<<"\n";
-          }*/
-          // skip instrumenting instructions whose tag matches the skip tag list
-          if (this->hasTagsToSkip && I.hasMetadataOtherThanDebugLoc()) {
-            llvm::dbgs() << "Found instruction with tags ad we have set tags\n";
-            for (auto tag : skipTags) {
-              llvm::dbgs() << tag << "\n";
-              if (auto *metadata = I.getMetadata(tag)) {
-                llvm::dbgs() << "Skipping tagged instruction: ";
-                I.print(llvm::dbgs(), true);
-                llvm::dbgs() << "\n";
-                continue;
-              }
-            }
-          }
-          if (auto callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
-            auto calledF = callInst->getCalledFunction();
-            if (calledF && calledF->getName() == "assert") {
+      }
+      bool hashUpdated = false;
+      llvm::dbgs() << " Processing function:" << F.getName() << "\n";
+      countProcessedFuncs++;
+      auto F_input_dependency_info = input_dependency_info->getAnalysisInfo(&F);
+      // no hashes for functions called from non deterministc blocks
+      const bool insert_assertions = !F_input_dependency_info->isExtractedFunction();
+      llvm::LoopInfo &LI = getAnalysis<llvm::LoopInfoWrapperPass>(F).getLoopInfo();
+      for (auto &B : F) {
+          if (F_input_dependency_info->isInputDependentBlock(&B) && &F.back() != &B) {
               continue;
-            }
-            // evaluate dependency of call load arguments
           }
+          for (auto &I : B) {
+              if (skipInstruction(I, F_input_dependency_info)) {
+                  continue;
+              }
+              if (hasSkipTag(I)) {
+                  continue;
+              }
+              if (F_input_dependency_info->isInputDependent(&I)) {
+                  hashUpdated |= instrumentInstArguments(I);
+                  modified = true;
+              } else {
+                  hashUpdated |= instrumentInst(I);
+                  modified = true;
+              }
+              if (!insert_assertions) {
+                  continue;
+              }
+              if (canInsertAssertionAtLocation(F, B, hashUpdated,
+                                               function_callsite_data,
+                                               function_info, LI)) {
+                  hashUpdated = false;
+                  insertAssert(I);
+                  modified = true;
 
-          hashUpdated = instrumentInst(I);
-          modified = true;
-        }
-        if (function_callsite_data.isFunctionCalledInLoop(&F)) {
-          llvm::dbgs() << "InsertLogger skipped function:" << F.getName()
-                       << " because it is called from a loop!\n";
-          continue;
-        }
-        auto loop = LI.getLoopFor(&B);
-        if (loop != nullptr) {
-          continue;
-        }
-        // We shouldn't insert asserts when there was no hash update, see #9
-        if (!hashUpdated) {
-          llvm::dbgs() << "InsertLogger skipped because there was no hash "
-                          "update in between!\n";
-          continue;
-        }
-        if (function_info->get_functions().size() == 0 ||
-            !function_info->is_function(&F)) {
-          // Begin #24
-          // If the function has multiple callsites it should get an assert with
-          // multiple correct hash values, otherwise patcher keeps the last call
-          // as the correct hash. Boom! This breaks OH and signals tampering...
-          // for now we insert no asserts in functions with multiple callsites
-          // moving forward we should get asserts with multiple place holders
-	  // There is already an issue for this - #22
-          int callsites =
-              function_callsite_data.getNumberOfFunctionCallSites(&F);
-          llvm::dbgs() << "InsertLogger evaluating function:" << F.getName()
-                       << " callsites detected =" << callsites << "\n";
-          if (callsites > 1) {
-            llvm::dbgs()
-                << "InsertLogger skipped function:" << F.getName()
-                << " because it has more than one call site, see #24.!\n";
-            continue;
+              }
           }
-          // END #24
-          hashUpdated = false;
-          insertLogger(I);
-          llvm::dbgs() << "InsertLogger included function:" << F.getName()
-                       << " because it is not in the skip  assert list!\n";
-
-          modified = true;
-        } else {
-          llvm::dbgs() << "InsertLogger skipped function:" << F.getName()
-                       << " because it is in the skip assert list!\n";
-        }
       }
-    }
   }
   if (!DumpOHStat.empty()) {
     dbgs() << "OH stats is requested, dumping stat file...\n";
