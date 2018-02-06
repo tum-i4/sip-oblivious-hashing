@@ -429,8 +429,8 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
   // Insert Globals
   setup_hash_values(M);
 
+  bool hashUpdated = false;
   for (auto &F : M) {
-    bool hashUpdated = false;
     // No input dependency info for declarations and instrinsics.
     if (F.isDeclaration() || F.isIntrinsic()) {
       continue;
