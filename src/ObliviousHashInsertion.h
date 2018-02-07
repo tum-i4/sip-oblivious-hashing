@@ -39,10 +39,12 @@ private:
                           int& protectedArguments);
   bool instrumentGetElementPtrInst(llvm::GetElementPtrInst* getElemPtr);
   bool instrumentCmpInst(llvm::CmpInst* I);
-  void insertLogger(llvm::Instruction &I);
-  void insertLogger(llvm::IRBuilder<> &builder, llvm::Instruction &I,
+  bool instrumentInstArguments(llvm::Instruction& I);
+  void insertAssert(llvm::Instruction &I);
+  void insertAssert(llvm::IRBuilder<> &builder, llvm::Instruction &I,
                     unsigned hashToLogIdx);
   void parse_skip_tags();
+  bool hasSkipTag(llvm::Instruction& I);
   bool isInstAGuard(llvm::Instruction &I);
 
 private:
@@ -54,7 +56,7 @@ private:
   std::vector<std::string> skipTags;
   llvm::Constant *hashFunc1;
   llvm::Constant *hashFunc2;
-  llvm::Constant *logger;
+  llvm::Constant *assert;
   std::vector<llvm::GlobalVariable *> hashPtrs;
   std::vector<unsigned> usedHashIndices;
 };
