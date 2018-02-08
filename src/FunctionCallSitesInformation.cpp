@@ -44,6 +44,11 @@ void FunctionCallSiteData::setIndirectCallSiteInfo(const input_dependency::Indir
     m_indirectCalls = indirectCalls;
 }
 
+void FunctionCallSiteData::setVirtualCallSiteInfo(const VirtualCallSiteAnalysisResult* virtualCalls)
+{
+    m_virtualCalls = virtualCalls;
+}
+
 bool FunctionCallSiteData::isFunctionCalledInLoop(llvm::Function* F) const
 {
     return m_functionsCalledInLoop.find(F) != m_functionsCalledInLoop.end();
@@ -90,6 +95,7 @@ void FunctionCallSiteData::process_function(llvm::Function* F)
         return;
     }
     bool called_in_loop = m_functionsCalledInLoop.find(F) != m_functionsCalledInLoop.end();
+    unsigned call_count = m_functionCallSiteNumbers[F];
     llvm::LoopInfo* LI = m_loopInfoGetter(*F);
     for (auto& B : *F) {
         if (F_input_dependency_info->isInputDependentBlock(&B)) {
@@ -111,7 +117,11 @@ void FunctionCallSiteData::process_function(llvm::Function* F)
                     // if function is called in a loop remove from call site numbers map
                     m_functionCallSiteNumbers.erase(called_F);
                 } else {
-                    ++m_functionCallSiteNumbers[called_F];
+                    if (call_count == 0) {
+                        ++m_functionCallSiteNumbers[called_F];
+                    } else {
+                        m_functionCallSiteNumbers[called_F] += call_count;
+                    }
                 }
             }
         }
@@ -127,6 +137,9 @@ std::vector<llvm::Function*> FunctionCallSiteData::get_call_targets(T* instructi
         call_targets.push_back(called_F);
     } else if (m_indirectCalls->hasIndirectTargets(instruction)) {
         const input_dependency::FunctionSet& targets = m_indirectCalls->getIndirectTargets(instruction);
+        call_targets.insert(call_targets.end(), targets.begin(), targets.end());
+    } else if (m_virtualCalls->hasVirtualCallCandidates(instruction)) {
+        const input_dependency::FunctionSet& targets = m_virtualCalls->getVirtualCallCandidates(instruction);
         call_targets.insert(call_targets.end(), targets.begin(), targets.end());
     }
     return call_targets;
@@ -152,13 +165,14 @@ void FunctionCallSiteData::gatherCallSiteData(llvm::Module& M)
         // assume that input deps will be handled by any pass using information of this pass.
         process_function(F);
     }
-    //dump();
+    dump();
 }
 
 bool FunctionCallSiteInformationPass::runOnModule(llvm::Module &M)
 {
     const auto &input_dependency_info = getAnalysis<input_dependency::InputDependencyAnalysisPass>().getInputDependencyAnalysis();
     const auto& indirectCallAnalysis = getAnalysis<input_dependency::IndirectCallSitesAnalysis>().getIndirectsAnalysisResult();
+    const auto& virtualCallAnalysis = getAnalysis<input_dependency::IndirectCallSitesAnalysis>().getVirtualsAnalysisResult();
     llvm::CallGraph* callGraph = &getAnalysis<llvm::CallGraphWrapperPass>().getCallGraph();
     const auto& loopInfoGetter = [this] (llvm::Function& F) {return &getAnalysis<llvm::LoopInfoWrapperPass>(F).getLoopInfo();};
 
@@ -166,6 +180,7 @@ bool FunctionCallSiteInformationPass::runOnModule(llvm::Module &M)
     m_callSiteData.setLoopInfoGetter(loopInfoGetter);
     m_callSiteData.setInputDepInfo(input_dependency_info);
     m_callSiteData.setIndirectCallSiteInfo(&indirectCallAnalysis);
+    m_callSiteData.setVirtualCallSiteInfo(&virtualCallAnalysis);
 
     m_callSiteData.gatherCallSiteData(M);
 

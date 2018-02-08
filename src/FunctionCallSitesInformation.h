@@ -17,6 +17,7 @@ class CallGraph;
 
 namespace input_dependency {
 class IndirectCallSitesAnalysisResult;
+class VirtualCallSiteAnalysisResult;
 }
 
 namespace oh {
@@ -27,6 +28,7 @@ class FunctionCallSiteData
 private:
     using InputDependencyAnalysisType = input_dependency::InputDependencyAnalysisPass::InputDependencyAnalysisType;
     using IndirectCallSitesAnalysisResult = input_dependency::IndirectCallSitesAnalysisResult;
+    using VirtualCallSiteAnalysisResult = input_dependency::VirtualCallSiteAnalysisResult;
 
 public:
     using LoopInfoGetter = std::function<llvm::LoopInfo* (llvm::Function& )>;
@@ -38,6 +40,7 @@ public:
     void setLoopInfoGetter(const LoopInfoGetter& loopInfoGetter);
     void setInputDepInfo(const InputDependencyAnalysisType& inputDep);
     void setIndirectCallSiteInfo(const IndirectCallSitesAnalysisResult* indirectCalls);
+    void setVirtualCallSiteInfo(const VirtualCallSiteAnalysisResult* virtualCalls);
 
     bool isFunctionCalledInLoop(llvm::Function* F) const;
     unsigned getNumberOfFunctionCallSites(llvm::Function* F) const;
@@ -57,6 +60,7 @@ private:
     LoopInfoGetter m_loopInfoGetter;
     InputDependencyAnalysisType m_inputDepRes;
     const input_dependency::IndirectCallSitesAnalysisResult* m_indirectCalls;
+    const input_dependency::VirtualCallSiteAnalysisResult* m_virtualCalls;
 
     std::unordered_set<llvm::Function*> m_functionsCalledInLoop;
     std::unordered_map<llvm::Function*, unsigned> m_functionCallSiteNumbers;

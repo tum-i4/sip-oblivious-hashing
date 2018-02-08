@@ -427,8 +427,8 @@ bool ObliviousHashInsertionPass::instrumentInstArguments(llvm::Instruction& I)
     // load/store arguments are processed in instrumentInst
     // TODO: what other instructions may skip?
     if (llvm::dyn_cast<llvm::StoreInst>(&I)
-        || llvm::dyn_cast<llvm::LoadInst>(&I)
-        || llvm::dyn_cast<llvm::AllocaInst>(&I)) {
+            || llvm::dyn_cast<llvm::LoadInst>(&I)
+            || llvm::dyn_cast<llvm::AllocaInst>(&I)) {
         return false;
     }
     bool hashInserted = false;
@@ -437,6 +437,11 @@ bool ObliviousHashInsertionPass::instrumentInstArguments(llvm::Instruction& I)
             hashInserted |= insertHash(I, const_op, false);
         }
     }
+    if (hashInserted) {
+        stats.addNumberOfHashCalls(1);
+        stats.addNumberOfProtectedInstructions(1);
+    }
+
     return hashInserted;
 }
 
@@ -562,7 +567,8 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
       const bool insert_assertions = !F_input_dependency_info->isExtractedFunction();
       llvm::LoopInfo &LI = getAnalysis<llvm::LoopInfoWrapperPass>(F).getLoopInfo();
       for (auto &B : F) {
-          if (F_input_dependency_info->isInputDependentBlock(&B) && &F.back() != &B) {
+          if (F_input_dependency_info->isInputDependentBlock(&B)) {
+              //&& &F.back() != &B) {
               continue;
           }
           for (auto &I : B) {
@@ -604,7 +610,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module &M) {
     errs() << "ERR. processed " << countProcessedFuncs
            << " function, while filter count is "
            << function_filter_info->get_functions().size() << "\n";
-    exit(1);
+    //exit(1);
   }
   //  dbgs()<<"runOnModule is done\n";
   return modified;
