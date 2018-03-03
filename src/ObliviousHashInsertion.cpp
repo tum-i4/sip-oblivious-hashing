@@ -539,6 +539,7 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F, const FunctionO
                                         { return instr == local_hash || instr == local_store; };
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
     llvm::LoopInfo &LI = getAnalysis<llvm::LoopInfoWrapperPass>(*F).getLoopInfo();
+    bool has_inputdep_block = false;
     for (auto& B : path) {
         bool can_insert_assertions = can_insert_assertion_at_location(F, B, LI);
         if (!F_input_dependency_info->isInputDependentBlock(B) && !F_input_dependency_info->isInputDepFunction()) {
@@ -552,7 +553,12 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F, const FunctionO
             }
         } else {
             modified |= process_block(F, B, local_hash, can_insert_assertions, skip_instruction_for_assertion);
+            has_inputdep_block = true;
         }
+    }
+    if (!modified || !has_inputdep_block) {
+        local_store->eraseFromParent();
+        local_hash->eraseFromParent();
     }
     return modified;
 }
@@ -563,8 +569,10 @@ bool ObliviousHashInsertionPass::process_block(llvm::Function* F, llvm::BasicBlo
 {
     bool modified = false;
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
+    bool local_hash_updated = false;
+    bool local_hash = (hash_value != nullptr);
     for (auto &I : *B) {
-        if (skipInstruction(I, F_input_dependency_info)) {
+        if (skipInstruction(I, F_input_dependency_info) || skipInstructionPred(&I)) {
             continue;
         }
         if (hasSkipTag(I)) {
@@ -574,9 +582,10 @@ bool ObliviousHashInsertionPass::process_block(llvm::Function* F, llvm::BasicBlo
             && F_input_dependency_info->isDataDependent(&I)) {
             continue;
         }
-        m_hashUpdated |= instrumentInst(I, hash_value);
-        modified |= true;
-        if (!insert_assert || skipInstructionPred(&I)) {
+        local_hash_updated |= instrumentInst(I, hash_value);
+        m_hashUpdated |= local_hash_updated;
+        modified |= local_hash_updated;
+        if (!insert_assert || skipInstructionPred(&I) || (local_hash && !local_hash_updated)) {
             continue;
         }
         if (!hash_value) {
