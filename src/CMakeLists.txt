@@ -5,6 +5,7 @@ add_library(oblivious-hashing MODULE
 	AssertFunctionMarkPass.cpp
 	Stats.cpp
     FunctionCallSitesInformation.cpp
+    FunctionOHPaths.cpp
 	)
 
 #Use C++ 11 to compile our pass(i.e., supply - std = c++ 11).

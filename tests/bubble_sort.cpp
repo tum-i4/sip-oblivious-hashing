@@ -3,6 +3,7 @@
 
 void sort(int n, int array[])
 {
+    printf("start sort\n");
     for (unsigned i = 0; i < n; ++i) {
         unsigned j = 0;
         while (j < n - 1) {
@@ -14,6 +15,7 @@ void sort(int n, int array[])
             ++j;
         }
     }
+    printf("print results\n");
     for (unsigned i = 0; i < n; ++i) {
         printf("%d ", array[i]);
     }
@@ -31,17 +33,19 @@ double doubleStuff(int n, double b)
 
 int main(int argc, char* argv[])
 {
+    int SIZE = 7;
+    int size = SIZE;
     if (argc != 2) {
         printf("wrong number of arguments. Expects number of elements to sort\n");
+    } else {
+        size = atoi(argv[1]);
     }
-    int SIZE = 7;
-    int array[] = {42, 78, 54, 12, 7, 1, 0};
-    int size = atoi(argv[1]);
 
     // get minimum
     if (SIZE < size) {
         size = SIZE;
     }
+    int array[] = {42, 78, 54, 12, 7, 1, 0};
 
     // sorts first size elements of array
     sort(size, array);
