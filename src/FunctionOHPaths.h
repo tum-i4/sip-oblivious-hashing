@@ -17,6 +17,7 @@ class FunctionOHPaths
 public:
     using OHPath = std::vector<llvm::BasicBlock*>;
     using OHPaths = std::vector<OHPath>;
+    using iterator = OHPaths::iterator;
 
 public:
     FunctionOHPaths(llvm::Function* F, llvm::DominatorTree* domTree);
@@ -30,6 +31,16 @@ public:
     const OHPaths& getOHPaths() const
     {
         return m_paths;
+    }
+
+    iterator begin()
+    {
+        return m_paths.begin();
+    }
+
+    iterator end()
+    {
+        return m_paths.end();
     }
     
     // debug function

@@ -2,12 +2,19 @@
 
 #include "llvm/Pass.h"
 
-#include "input-dependency/InputDependencyAnalysisPass.h"
-#include "llvm/IR/IRBuilder.h"
-#include <vector>
+#include "FunctionOHPaths.h"
 #include "Stats.h"
+#include "input-dependency/InputDependencyAnalysisPass.h"
+#include "../../self-checksumming/src/FunctionInfo.h"
+
+#include "llvm/IR/IRBuilder.h"
+
+#include <functional>
+#include <set>
+#include <vector>
 
 namespace llvm {
+class BasicBlock;
 class CallInst;
 class CmpInst;
 class Constant;
@@ -15,9 +22,13 @@ class GetElementPtrInst;
 class GlobalVariable;
 class Instruction;
 class Value;
+class LoopInfo;
 }
 
 namespace oh {
+
+class FunctionCallSiteData;
+class OHPath;
 
 class ObliviousHashInsertionPass : public llvm::ModulePass {
 public:
@@ -29,20 +40,34 @@ public:
   virtual void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
 
 private:
+  using SkipFunctionsPred = std::function<bool (llvm::Instruction* instr)>;
+  void setup_guardMe_metadata(llvm::Module& M);
+  void setup_used_analysis_results();
   void setup_functions(llvm::Module &M);
   void setup_hash_values(llvm::Module &M);
-  bool insertHashBuilder(llvm::IRBuilder<> &builder, llvm::Value *v);
-  bool insertHash(llvm::Instruction &I, llvm::Value *v, bool before);
-  bool instrumentInst(llvm::Instruction& I);
+  bool skip_function(llvm::Function& F) const;
+  bool process_function(llvm::Function* F);
+  bool process_path(llvm::Function* F, const FunctionOHPaths::OHPath& path);
+  bool process_block(llvm::Function* F, llvm::BasicBlock* B,
+                     llvm::Value* hash_value, bool insert_assert,
+                     const SkipFunctionsPred& skipInstruction);
+  bool can_process_path(llvm::Function* F, const FunctionOHPaths::OHPath& path);
+  bool can_insert_assertion_at_location(llvm::Function* F,
+                                        llvm::BasicBlock* B,
+                                        llvm::LoopInfo& LI);
+  bool insertHashBuilder(llvm::IRBuilder<> &builder, llvm::Value *v, llvm::Value* hash_value);
+  bool insertHash(llvm::Instruction &I, llvm::Value *v, llvm::Value* hash_value, bool before);
+  bool instrumentInst(llvm::Instruction& I, llvm::Value* hash_value);
   template <class CallInstTy>
   bool instrumentCallInst(CallInstTy* call,
-                          int& protectedArguments);
-  bool instrumentGetElementPtrInst(llvm::GetElementPtrInst* getElemPtr);
-  bool instrumentCmpInst(llvm::CmpInst* I);
-  bool instrumentInstArguments(llvm::Instruction& I);
-  void insertAssert(llvm::Instruction &I);
-  void insertAssert(llvm::IRBuilder<> &builder, llvm::Instruction &I,
-                    unsigned hashToLogIdx);
+                          int& protectedArguments,
+                          llvm::Value* hash_value);
+  bool instrumentGetElementPtrInst(llvm::GetElementPtrInst* getElemPtr, llvm::Value* hash_value);
+  bool instrumentCmpInst(llvm::CmpInst* I, llvm::Value* hash_value);
+  void insertAssert(llvm::Instruction &I, llvm::Value* hash_value);
+  void insertAssert(llvm::IRBuilder<> &builder,
+                    llvm::Instruction &I,
+                    llvm::Value* hash_value);
   void parse_skip_tags();
   bool hasSkipTag(llvm::Instruction& I);
   bool isInstAGuard(llvm::Instruction &I);
@@ -50,14 +75,21 @@ private:
 private:
   OHStats stats;
   using InputDependencyAnalysisType = input_dependency::InputDependencyAnalysisPass::InputDependencyAnalysisType;
-  InputDependencyAnalysisType input_dependency_info;
+  InputDependencyAnalysisType m_input_dependency_info;
+  FunctionInformation* m_function_mark_info;
+  FunctionInformation* m_function_filter_info;
+  const FunctionCallSiteData* m_function_callsite_data;
+
+  bool m_hashUpdated;
   bool hasTagsToSkip;
   unsigned guardMetadataKindID;
+  unsigned assertCnt;
   std::vector<std::string> skipTags;
   llvm::Constant *hashFunc1;
   llvm::Constant *hashFunc2;
   llvm::Constant *assert;
   std::vector<llvm::GlobalVariable *> hashPtrs;
   std::vector<unsigned> usedHashIndices;
+  std::unordered_set<llvm::BasicBlock*> m_processed_deterministic_blocks;
 };
 }
