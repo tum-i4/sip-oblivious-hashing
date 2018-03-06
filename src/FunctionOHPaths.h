@@ -18,6 +18,7 @@ public:
     using OHPath = std::vector<llvm::BasicBlock*>;
     using OHPaths = std::vector<OHPath>;
     using iterator = OHPaths::iterator;
+    using const_iterator = OHPaths::const_iterator;
 
 public:
     FunctionOHPaths(llvm::Function* F, llvm::DominatorTree* domTree);
@@ -42,6 +43,17 @@ public:
     {
         return m_paths.end();
     }
+
+    const_iterator begin() const
+    {
+        return m_paths.begin();
+    }
+
+    const_iterator end() const
+    {
+        return m_paths.end();
+    }
+
     
     // debug function
     void dump() const;

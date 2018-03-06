@@ -6,8 +6,175 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include "llvm/Analysis/CFGPrinter.h"
+#include "llvm/Analysis/CFG.h"
+#include "llvm/Support/FileSystem.h"
+
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
+
+#include <unordered_map>
+
+namespace wrappers {
+
+class OHPathsFunction
+{
+public:
+    OHPathsFunction(llvm::Function* F, const oh::FunctionOHPaths& paths)
+        : m_F(F)
+    {
+        setup_block_paths(paths);
+    }
+
+    llvm::Function* get_function()
+    {
+        return m_F;
+    }
+
+    const llvm::Function* get_function() const
+    {
+        return m_F;
+    }
+
+    const std::unordered_map<llvm::BasicBlock*, std::vector<int>>& get_blocks() const
+    {
+        return m_blocks;
+    }
+
+    std::unordered_map<llvm::BasicBlock*, std::vector<int>>& get_blocks()
+    {
+        return m_blocks;
+    }
+
+private:
+    void setup_block_paths(const oh::FunctionOHPaths& paths);
+
+private:
+    llvm::Function* m_F;
+    std::unordered_map<llvm::BasicBlock*, std::vector<int>> m_blocks;
+};
+
+void OHPathsFunction::setup_block_paths(const oh::FunctionOHPaths& paths)
+{
+    unsigned i = 0;
+    for (const auto& path : paths) {
+        for (const auto& B : path) {
+            m_blocks[B].push_back(i);
+        }
+        ++i;
+    }
+}
+
+} // namespace wrappers
+
+namespace llvm {
+
+template <>
+struct GraphTraits<wrappers::OHPathsFunction*> : public GraphTraits<BasicBlock*>
+{
+    static NodeType* getEntryNode(wrappers::OHPathsFunction* OHF) {return &OHF->get_function()->getEntryBlock();}
+    typedef Function::iterator nodes_iterator;
+    static nodes_iterator nodes_begin(wrappers::OHPathsFunction* OHF) {return OHF->get_function()->begin();}
+    static nodes_iterator nodes_end(wrappers::OHPathsFunction* OHF) {return OHF->get_function()->end();}
+    static size_t size(wrappers::OHPathsFunction* OHF) {return OHF->get_function()->size();}
+};
+
+template<>
+struct GraphTraits<const wrappers::OHPathsFunction*> : public GraphTraits<const BasicBlock*>
+{
+    static NodeType* getEntryNode(const wrappers::OHPathsFunction* OHF) {return &OHF->get_function()->getEntryBlock();}
+    typedef Function::const_iterator nodes_iterator;
+    static nodes_iterator nodes_begin(const wrappers::OHPathsFunction* OHF) {return OHF->get_function()->begin();}
+    static nodes_iterator nodes_end(const wrappers::OHPathsFunction* OHF) {return OHF->get_function()->end();}
+    static size_t size(const wrappers::OHPathsFunction* OHF) {return OHF->get_function()->size();}
+};
+
+template<>
+class DOTGraphTraits<const wrappers::OHPathsFunction*> : public DefaultDOTGraphTraits
+{
+public:
+    DOTGraphTraits (bool isSimple=false)
+        : DefaultDOTGraphTraits(isSimple)
+    {
+    }
+
+    static std::string getGraphName(const wrappers::OHPathsFunction* F) {
+        return "CFG for '" + F->get_function()->getName().str() + "' function";
+    }
+
+    static std::string getSimpleNodeLabel(const BasicBlock *Node,
+                                          const wrappers::OHPathsFunction* OHF)
+    {
+        if (!Node->getName().empty()) {
+            return Node->getName().str();
+        }
+
+        std::string Str;
+        raw_string_ostream OS(Str);
+        Node->printAsOperand(OS, false);
+        return OS.str();
+    }
+
+    static std::string getCompleteNodeLabel(const BasicBlock *Node,
+                                            const wrappers::OHPathsFunction* OHF)
+    {
+        std::string Str;
+        raw_string_ostream OS(Str);
+        OS << Node->getName() << "\n";
+        auto pos = OHF->get_blocks().find(const_cast<BasicBlock*>(Node));
+        if (pos == OHF->get_blocks().end()) {
+            return OS.str();
+        }
+        for (const auto& index : pos->second) {
+            OS << index;
+            if (index != pos->second.back()) {
+                OS << ",  ";
+            }
+        }
+        if (pos->second.size() == 1) {
+            OS << "\nend path\n";
+        }
+        OS << "\n";
+        return OS.str();
+    }
+
+    static std::string getEdgeSourceLabel(const BasicBlock *Node,
+                                          succ_const_iterator I)
+    {
+        // Label source of conditional branches with "T" or "F"
+        if (const BranchInst *BI = dyn_cast<BranchInst>(Node->getTerminator()))
+            if (BI->isConditional())
+                return (I == succ_begin(Node)) ? "T" : "F";
+
+        // Label source of switch edges with the associated value.
+        if (const SwitchInst *SI = dyn_cast<SwitchInst>(Node->getTerminator())) {
+            unsigned SuccNo = I.getSuccessorIndex();
+
+            if (SuccNo == 0) return "def";
+
+            std::string Str;
+            raw_string_ostream OS(Str);
+            SwitchInst::ConstCaseIt Case =
+                SwitchInst::ConstCaseIt::fromSuccessorIndex(SI, SuccNo);
+            OS << Case.getCaseValue()->getValue();
+            return OS.str();
+        }
+        return "";
+    }
+
+    std::string getNodeLabel(const BasicBlock* Node,
+                             const wrappers::OHPathsFunction* Graph)
+    {
+        if (isSimple()) {
+            return getSimpleNodeLabel(Node, Graph);
+        } else {
+            return getCompleteNodeLabel(Node, Graph);
+        }
+    }
+};
+
+} // namespace llvm
+
 
 namespace oh {
 
@@ -69,7 +236,22 @@ bool FunctionOHPathsPass::runOnFunction(llvm::Function& F)
     llvm::DominatorTree& domTree = getAnalysis<llvm::DominatorTreeWrapperPass>().getDomTree();
     FunctionOHPaths paths(&F, &domTree);
     paths.constructOHPaths();
-    paths.dump();
+
+    wrappers::OHPathsFunction OHF(&F, paths);
+    const wrappers::OHPathsFunction* Graph = &OHF;
+    std::string Filename = "cfg." + F.getName().str() + ".dot";
+    std::error_code EC;
+    llvm::raw_fd_ostream File(Filename, EC, llvm::sys::fs::F_Text);
+    std::string GraphName = llvm::DOTGraphTraits<const wrappers::OHPathsFunction*>::getGraphName(Graph);
+    std::string Title = GraphName + " for '" + F.getName().str() + "' function";
+
+    llvm::dbgs() << "Writing OH short range CFG for " << F.getName() << "\n";
+    if (!EC) {
+        llvm::WriteGraph(File, Graph, false, Title);
+    } else {
+        llvm::dbgs() << "  error opening file for writing!";
+    }
+    //paths.dump();
 
     return false;
 }
