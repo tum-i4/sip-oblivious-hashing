@@ -16,6 +16,10 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 
+#include "llvm/Transforms/Utils/ValueMapper.h"
+#include "llvm/Transforms/Utils/Cloning.h"
+#include "llvm/Transforms/Utils/BasicBlockUtils.h"
+
 #include <assert.h>
 #include <boost/algorithm/string/classification.hpp> // Include boost::for is_any_of
 #include <boost/algorithm/string/split.hpp>          // Include for boost::split
@@ -51,6 +55,23 @@ bool skipInstruction(llvm::Instruction& I,
         // evaluate dependency of call load arguments
     }
     return false;
+}
+
+std::string get_path_function_name(const std::string& base_name, unsigned path_num)
+{
+    std::string f_name = base_name;
+    f_name += "_path_";
+    f_name += std::to_string(path_num);
+    return f_name;
+}
+
+llvm::FunctionType* get_path_function_type(llvm::Function* F, bool use_same_type)
+{
+    if (use_same_type) {
+        const auto& params = F->getFunctionType()->params();
+        return llvm::FunctionType::get(llvm::Type::getVoidTy(F->getContext()), params, false);
+    }
+    return llvm::FunctionType::get(llvm::Type::getVoidTy(F->getContext()), false);
 }
 
 }
@@ -207,43 +228,44 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I, llvm::Valu
     bool hashInserted = false;
     bool isCallGuard = false;
     int protectedArguments = 0;
-    if (!hash_value) {
+    llvm::Value* hash_to_update = hash_value;
+    if (!hash_to_update) {
         unsigned index = get_random(num_hash);
         usedHashIndices.push_back(index);
-        hash_value = hashPtrs.at(index);
+        hash_to_update = hashPtrs.at(index);
     }
 
     if (auto* cmp = llvm::dyn_cast<llvm::CmpInst>(&I)) {
-        hashInserted = instrumentCmpInst(cmp, hash_value);
+        hashInserted = instrumentCmpInst(cmp, hash_to_update);
     } else if (llvm::ReturnInst::classof(&I)) {
         auto *ret = llvm::dyn_cast<llvm::ReturnInst>(&I);
         if (auto *val = ret->getReturnValue()) {
-            hashInserted = insertHash(I, val, hash_value, true);
+            hashInserted = insertHash(I, val, hash_to_update, true);
         }
     } else if (llvm::LoadInst::classof(&I)) {
         auto *load = llvm::dyn_cast<llvm::LoadInst>(&I);
-        if (load->getPointerOperand() != hash_value) {
-            hashInserted = insertHash(I, load, hash_value, false);
+        if (load->getPointerOperand() != hash_to_update) {
+            hashInserted = insertHash(I, load, hash_to_update, false);
         }
     } else if (llvm::StoreInst::classof(&I)) {
         auto *store = llvm::dyn_cast<llvm::StoreInst>(&I);
         llvm::Value *v = store->getPointerOperand();
-        if (v != hash_value) {
-            hashInserted = insertHash(I, v, hash_value, false);
+        if (v != hash_to_update) {
+            hashInserted = insertHash(I, v, hash_to_update, false);
         }
     } else if (llvm::BinaryOperator::classof(&I)) {
         auto *bin = llvm::dyn_cast<llvm::BinaryOperator>(&I);
         if (bin->getOpcode() == llvm::Instruction::Add) {
-            hashInserted = insertHash(I, bin, hash_value, false);
+            hashInserted = insertHash(I, bin, hash_to_update, false);
         }
     } else if (auto *call = llvm::dyn_cast<llvm::CallInst>(&I)) {
-        hashInserted = instrumentCallInst(call, protectedArguments, hash_value);
+        hashInserted = instrumentCallInst(call, protectedArguments, hash_to_update);
         isCallGuard = isInstAGuard(I);
     } else if (auto* invoke = llvm::dyn_cast<llvm::InvokeInst>(&I)) {
-        hashInserted = instrumentCallInst(invoke, protectedArguments, hash_value);
+        hashInserted = instrumentCallInst(invoke, protectedArguments, hash_to_update);
         isCallGuard = isInstAGuard(I);
     } else if (auto* getElemPtr = llvm::dyn_cast<llvm::GetElementPtrInst>(&I)) {
-        hashInserted = instrumentGetElementPtrInst(getElemPtr, hash_value);
+        hashInserted = instrumentGetElementPtrInst(getElemPtr, hash_to_update);
     }
 
     if (hashInserted) {
@@ -371,21 +393,21 @@ bool ObliviousHashInsertionPass::instrumentCmpInst(llvm::CmpInst* I, llvm::Value
 
 void ObliviousHashInsertionPass::insertAssert(llvm::Instruction &I, llvm::Value* hash_value)
 {
-    // no hashing has been done. no meaning to log
-    if (usedHashIndices.empty() && !hash_value) {
+    if (!hash_value && usedHashIndices.empty()) {
         return;
     }
     llvm::LLVMContext &Ctx = I.getModule()->getContext();
     llvm::IRBuilder<> builder(&I);
     builder.SetInsertPoint(I.getParent(), builder.GetInsertPoint());
+    llvm::Value* hash_to_assert = hash_value;
     if (!hash_value) {
         if (llvm::CmpInst::classof(&I)) {
-            hash_value = hashPtrs.at(usedHashIndices.back());
+            hash_to_assert = hashPtrs.at(usedHashIndices.back());
         } else {
             unsigned random_hash_idx =
                 usedHashIndices.at(get_random(usedHashIndices.size()));
             assert(random_hash_idx < hashPtrs.size());
-            hash_value = hashPtrs.at(random_hash_idx);
+            hash_to_assert = hashPtrs.at(random_hash_idx);
         }
     }
 
@@ -393,7 +415,7 @@ void ObliviousHashInsertionPass::insertAssert(llvm::Instruction &I, llvm::Value*
     if (llvm::CmpInst::classof(&I)) {
         // log the last value which contains hash for this cmp instruction
         // builder.SetInsertPoint(I.getParent(), ++builder.GetInsertPoint());
-        insertAssert(builder, I, hash_value);
+        insertAssert(builder, I, hash_to_assert);
         return;
     }
     if (auto callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
@@ -401,13 +423,13 @@ void ObliviousHashInsertionPass::insertAssert(llvm::Instruction &I, llvm::Value*
         if (called_function != nullptr && !called_function->isIntrinsic() &&
                 called_function != hashFunc1 && called_function != hashFunc2) {
             // always insert assert before call instructions
-            insertAssert(builder, I, hash_value);
+            insertAssert(builder, I, hash_to_assert);
             return;
         }
     }
     if (get_random(2)) {
         // insert randomly
-        insertAssert(builder, I, hash_value);
+        insertAssert(builder, I, hash_to_assert);
     }
 }
 
@@ -459,11 +481,7 @@ void ObliviousHashInsertionPass::setup_functions(llvm::Module &M)
     llvm::FunctionType *function_type = llvm::FunctionType::get(llvm::Type::getVoidTy(Ctx), params, false);
     hashFunc1 = M.getOrInsertFunction("hash1", function_type);
     hashFunc2 = M.getOrInsertFunction("hash2", function_type);
-
-    assert = cast<Function>(
-            M.getOrInsertFunction("assert", Type::getVoidTy(M.getContext()),
-                Type::getInt64PtrTy(M.getContext()),
-                Type::getInt64Ty(M.getContext()), NULL));
+    assert = M.getOrInsertFunction("assert", function_type);
 }
 
 void ObliviousHashInsertionPass::setup_hash_values(llvm::Module &M)
@@ -509,14 +527,43 @@ bool ObliviousHashInsertionPass::process_function(llvm::Function* F)
 
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
     llvm::LoopInfo &LI = getAnalysis<llvm::LoopInfoWrapperPass>(*F).getLoopInfo();
-    for (auto& path : paths) {
-        modified |= process_path(F, path);
+    for (unsigned i = 0; i < paths.size(); ++i) {
+        modified |= process_path(F, paths[i], i);
     }
 
+    llvm::dbgs() << "\n Original function\n";
+    F->dump();
     return modified;
 }
 
-bool ObliviousHashInsertionPass::process_path(llvm::Function* F, const FunctionOHPaths::OHPath& path)
+void ObliviousHashInsertionPass::insert_calls_for_path_functions(llvm::Module& M)
+{
+    llvm::Function* main_F = M.getFunction("main");
+    for (auto& F_path_functions : m_path_functions) {
+        llvm::Function* F = F_path_functions.first;
+        auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
+        llvm::BasicBlock* insertion_block;
+        std::vector<llvm::Value *> arg_values;
+        if (F_input_dependency_info->isInputDepFunction()) {
+            insertion_block = &main_F->getEntryBlock();
+        } else {
+            for (auto& arg : F->args()) {
+                arg_values.push_back(&arg);
+            }
+            insertion_block = &F->getEntryBlock();
+        }
+        llvm::ArrayRef<llvm::Value *> args(arg_values);
+        for (auto& path_F : F_path_functions.second) {
+            llvm::IRBuilder<> builder(insertion_block);
+            builder.SetInsertPoint(insertion_block, insertion_block->getFirstInsertionPt());
+            builder.CreateCall(path_F, args);
+        }
+    }
+}
+
+bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
+                                              const FunctionOHPaths::OHPath& path,
+                                              unsigned path_num)
 {
     bool modified = false;
     if (!can_process_path(F, path)) {
@@ -530,14 +577,18 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F, const FunctionO
     llvm::dbgs() << "\n";
     llvm::BasicBlock* entry_block = path.front();
     llvm::LLVMContext &Ctx = entry_block->getContext();
-    auto local_hash = new llvm::AllocaInst(llvm::Type::getInt64Ty(Ctx), 0, 8);
+    auto local_hash = new llvm::AllocaInst(llvm::Type::getInt64Ty(Ctx), 0, 8, "local_hash");
     auto alloca_pos = entry_block->getInstList().insert(entry_block->begin(), local_hash);
     auto local_store = new llvm::StoreInst(llvm::ConstantInt::get(llvm::Type::getInt64Ty(Ctx), 0), local_hash, false, 8);
     entry_block->getInstList().insertAfter(alloca_pos, local_store);
 
-    const auto& skip_instruction_for_assertion = [&local_hash, &local_store] (llvm::Instruction* instr)
-                                        { return instr == local_hash || instr == local_store; };
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
+    std::vector<llvm::Instruction*> skiped_instructions;
+    const auto& skip_instruction_for_assertion = [&local_hash, &local_store, &F_input_dependency_info] (llvm::Instruction* instr)
+                                         {
+                                            return instr == local_hash || instr == local_store;
+                                         };
+
     llvm::LoopInfo &LI = getAnalysis<llvm::LoopInfoWrapperPass>(*F).getLoopInfo();
     bool has_inputdep_block = false;
     for (auto& B : path) {
@@ -549,23 +600,101 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F, const FunctionO
                         "update in between!\n";
                     continue;
                 }
-                modified |= process_block(F, B, nullptr, can_insert_assertions, skip_instruction_for_assertion);
+                modified |= process_block(F, B, nullptr, can_insert_assertions,
+                                          skip_instruction_for_assertion,
+                                          skiped_instructions);
             }
         } else {
-            modified |= process_block(F, B, local_hash, can_insert_assertions, skip_instruction_for_assertion);
+            // TODO: figure out why fails for local hash assertions
+            modified |= process_block(F, B, local_hash, false, /*can_process_path,*/
+                                      skip_instruction_for_assertion,
+                                      skiped_instructions);
             has_inputdep_block = true;
         }
     }
     if (!modified || !has_inputdep_block) {
         local_store->eraseFromParent();
         local_hash->eraseFromParent();
+    } else {
+        extract_path_function(F, path, skiped_instructions, path_num);
     }
+
     return modified;
+}
+
+void ObliviousHashInsertionPass::extract_path_function(llvm::Function* F,
+                                                       const FunctionOHPaths::OHPath& path,
+                                                       std::vector<llvm::Instruction*>& skip_instructions,
+                                                       unsigned path_num)
+{
+    auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
+    llvm::LLVMContext &Ctx = path.front()->getContext();
+    const std::string& f_name = get_path_function_name(F->getName(), path_num);
+    const bool is_input_dep_F = F_input_dependency_info->isInputDepFunction();
+    llvm::FunctionType* f_type = get_path_function_type(F, !is_input_dep_F);
+    llvm::Constant* result = F->getParent()->getOrInsertFunction(f_name, f_type);
+    llvm::Function* path_F = llvm::dyn_cast<llvm::Function>(result);
+    assert(path_F);
+
+    llvm::ValueToValueMapTy value_to_value_map;
+    if (!is_input_dep_F) {
+        // setup mapping for arguments
+        auto F_arg_it = F->arg_begin();
+        auto path_F_arg_it = path_F->arg_begin();
+        while (F_arg_it != F->arg_end() && path_F_arg_it != path_F->arg_end()) {
+            value_to_value_map.insert(std::make_pair(&*F_arg_it, llvm::WeakVH(&*path_F_arg_it)));
+            ++F_arg_it;
+            ++path_F_arg_it;
+        }
+        assert(F_arg_it == F->arg_end() && path_F_arg_it == path_F->arg_end());
+    }
+    std::vector<llvm::BasicBlock*> cloned_path;
+    for (int i = 0; i < path.size(); ++i) {
+        llvm::BasicBlock* B = path[i];
+        auto clone = llvm::CloneBasicBlock(B, value_to_value_map, "", path_F);
+        cloned_path.push_back(clone);
+        if (i - 1 < 0) {
+            continue;
+        }
+        cloned_path[i-1]->getTerminator()->eraseFromParent();
+        llvm::IRBuilder<> builder(cloned_path[i-1]);
+        builder.CreateBr(clone);
+    }
+    cloned_path.back()->getTerminator()->eraseFromParent();
+    llvm::IRBuilder<> builder(cloned_path.back());
+    builder.CreateRetVoid();
+    llvm::SmallVector<llvm::BasicBlock*, 0> cloned_path_blocks(cloned_path.begin(), cloned_path.end());
+    llvm::remapInstructionsInBlocks(cloned_path_blocks, value_to_value_map);
+    if (!is_input_dep_F) {
+        skip_instructions.clear();
+        value_to_value_map.clear();
+        m_path_functions[F].push_back(path_F);
+        return;
+    }
+    for (int i = skip_instructions.size() - 1; i >= 0; --i) {
+        auto pos = value_to_value_map.find(skip_instructions[i]);
+        if (pos == value_to_value_map.end() || !pos->second) {
+            llvm::dbgs() << "No clone for instruction " << *skip_instructions[i] << "\n";
+            continue;
+        }
+        if (llvm::dyn_cast<llvm::AllocaInst>(skip_instructions[i])) {
+            continue;
+        }
+        auto* instr = llvm::dyn_cast<llvm::Instruction>(pos->second);
+        if (!instr) {
+            continue;
+        }
+        instr->eraseFromParent();
+    }
+    skip_instructions.clear();
+    value_to_value_map.clear();
+    m_path_functions[F].push_back(path_F);
 }
 
 bool ObliviousHashInsertionPass::process_block(llvm::Function* F, llvm::BasicBlock* B,
                                                llvm::Value* hash_value, bool insert_assert,
-                                               const SkipFunctionsPred& skipInstructionPred)
+                                               const SkipFunctionsPred& skipInstructionPred,
+                                               std::vector<llvm::Instruction*>& skiped_instructions)
 {
     bool modified = false;
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
@@ -576,10 +705,12 @@ bool ObliviousHashInsertionPass::process_block(llvm::Function* F, llvm::BasicBlo
             continue;
         }
         if (hasSkipTag(I)) {
+            skiped_instructions.push_back(&I);
             continue;
         }
         if (F_input_dependency_info->isInputDependent(&I)
             && F_input_dependency_info->isDataDependent(&I)) {
+            skiped_instructions.push_back(&I);
             continue;
         }
         local_hash_updated |= instrumentInst(I, hash_value);
@@ -587,9 +718,6 @@ bool ObliviousHashInsertionPass::process_block(llvm::Function* F, llvm::BasicBlo
         modified |= local_hash_updated;
         if (!insert_assert || skipInstructionPred(&I) || (local_hash && !local_hash_updated)) {
             continue;
-        }
-        if (!hash_value) {
-            m_hashUpdated = false;
         }
         insertAssert(I, hash_value);
     }
@@ -682,6 +810,8 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
         ++countProcessedFuncs;
         modified |= process_function(&F);
     }
+
+    insert_calls_for_path_functions(M);
 
     if (!DumpOHStat.empty()) {
         dbgs() << "OH stats is requested, dumping stat file...\n";

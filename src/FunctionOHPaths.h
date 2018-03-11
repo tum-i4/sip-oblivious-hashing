@@ -54,7 +54,23 @@ public:
         return m_paths.end();
     }
 
-    
+    unsigned size() const
+    {
+        return m_paths.size();
+    }
+
+    const OHPath& operator [](unsigned i) const
+    {
+        assert(i < size());
+        return m_paths[i];
+    }
+
+    OHPath& operator [](unsigned i)
+    {
+        assert(i < size());
+        return m_paths[i];
+    }
+
     // debug function
     void dump() const;
 

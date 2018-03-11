@@ -47,10 +47,18 @@ private:
   void setup_hash_values(llvm::Module &M);
   bool skip_function(llvm::Function& F) const;
   bool process_function(llvm::Function* F);
-  bool process_path(llvm::Function* F, const FunctionOHPaths::OHPath& path);
+  void insert_calls_for_path_functions(llvm::Module& M);
+  bool process_path(llvm::Function* F,
+                    const FunctionOHPaths::OHPath& path,
+                    unsigned path_num);
+  void extract_path_function(llvm::Function* F,
+                             const FunctionOHPaths::OHPath& path,
+                             std::vector<llvm::Instruction*>& skip_instructions,
+                             unsigned path_num);
   bool process_block(llvm::Function* F, llvm::BasicBlock* B,
                      llvm::Value* hash_value, bool insert_assert,
-                     const SkipFunctionsPred& skipInstruction);
+                     const SkipFunctionsPred& skipInstruction,
+                     std::vector<llvm::Instruction*>& skiped_instructions);
   bool can_process_path(llvm::Function* F, const FunctionOHPaths::OHPath& path);
   bool can_insert_assertion_at_location(llvm::Function* F,
                                         llvm::BasicBlock* B,
@@ -91,5 +99,6 @@ private:
   std::vector<llvm::GlobalVariable *> hashPtrs;
   std::vector<unsigned> usedHashIndices;
   std::unordered_set<llvm::BasicBlock*> m_processed_deterministic_blocks;
+  std::unordered_map<llvm::Function*, std::vector<llvm::Function*>> m_path_functions;
 };
 }
