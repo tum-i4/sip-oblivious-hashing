@@ -13,6 +13,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/IR/Metadata.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 
@@ -269,8 +270,8 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I, llvm::Valu
     }
 
     if (hashInserted) {
-        stats.addNumberOfHashCalls(1);
-        stats.addNumberOfProtectedInstructions(1);
+        hash_value ? stats.addNumberOfShortRangeHashCalls(1) : stats.addNumberOfHashCalls(1);
+        hash_value ? stats.addNumberOfShortRangeProtectedInstructions(1) : stats.addNumberOfProtectedInstructions(1);
         if (isCallGuard) {
             // When call is a guard we compute implicit OH stats
             // See #37
@@ -278,16 +279,17 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I, llvm::Valu
             if (checkeeSize > 0) {
                 dbgs()<<"Implicit protection instructions to add:"<<checkeeSize<<"\n";
             }
-            stats.addNumberOfImplicitlyProtectedInstructions(checkeeSize);
+            hash_value ? stats.addNumberOfShortRangeImplicitlyProtectedInstructions(checkeeSize)
+                       : stats.addNumberOfImplicitlyProtectedInstructions(checkeeSize);
 
             //#20 increment number of protected guard instruction,
             // when at least one of the guard call arguments are
             // incorporated into the hash
-            stats.addNumberOfProtectedGuardInstructions(1);
-
-            stats.addNumberOfProtectedGuardArguments(protectedArguments);
+            hash_value ? stats.addNumberOfShortRangeProtectedGuardInstructions(1) : stats.addNumberOfProtectedGuardInstructions(1);
+            hash_value ? stats.addNumberOfShortRangeProtectedGuardArguments(protectedArguments)
+                       : stats.addNumberOfProtectedGuardArguments(protectedArguments);
         } else {
-            stats.addNumberOfProtectedArguments(protectedArguments);
+            hash_value ? stats.addNumberOfShortRangeProtectedArguments(protectedArguments) : stats.addNumberOfProtectedArguments(protectedArguments);
         }
     }
 
@@ -415,7 +417,7 @@ void ObliviousHashInsertionPass::insertAssert(llvm::Instruction &I, llvm::Value*
     if (llvm::CmpInst::classof(&I)) {
         // log the last value which contains hash for this cmp instruction
         // builder.SetInsertPoint(I.getParent(), ++builder.GetInsertPoint());
-        insertAssert(builder, I, hash_to_assert);
+        insertAssert(builder, I, hash_to_assert, hash_value != nullptr);
         return;
     }
     if (auto callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
@@ -423,19 +425,20 @@ void ObliviousHashInsertionPass::insertAssert(llvm::Instruction &I, llvm::Value*
         if (called_function != nullptr && !called_function->isIntrinsic() &&
                 called_function != hashFunc1 && called_function != hashFunc2) {
             // always insert assert before call instructions
-            insertAssert(builder, I, hash_to_assert);
+            insertAssert(builder, I, hash_to_assert, hash_value != nullptr);
             return;
         }
     }
     if (get_random(2)) {
         // insert randomly
-        insertAssert(builder, I, hash_to_assert);
+        insertAssert(builder, I, hash_to_assert, hash_value != nullptr);
     }
 }
 
 void ObliviousHashInsertionPass::insertAssert(llvm::IRBuilder<> &builder,
                                               llvm::Instruction &instr,
-                                              llvm::Value* hash_value)
+                                              llvm::Value* hash_value,
+                                              bool short_range_assert)
 {
     llvm::LLVMContext &Ctx = builder.getContext();
     builder.SetInsertPoint(instr.getParent(), builder.GetInsertPoint());
@@ -446,7 +449,7 @@ void ObliviousHashInsertionPass::insertAssert(llvm::IRBuilder<> &builder,
     ArrayRef<Value *> args(values);
     assertCnt++;
     // Stats add the assert call
-    stats.addNumberOfAssertCalls(1);
+    short_range_assert ? stats.addNumberOfShortRangeAssertCalls(1) : stats.addNumberOfAssertCalls(1);
     builder.CreateCall(assert, args);
 }
 
@@ -556,7 +559,10 @@ void ObliviousHashInsertionPass::insert_calls_for_path_functions(llvm::Module& M
         for (auto& path_F : F_path_functions.second) {
             llvm::IRBuilder<> builder(insertion_block);
             builder.SetInsertPoint(insertion_block, insertion_block->getFirstInsertionPt());
-            builder.CreateCall(path_F, args);
+            auto* call = builder.CreateCall(path_F, args);
+            auto* path_function_md_str = llvm::MDString::get(M.getContext(), "path_function");
+            llvm::MDNode* path_function_md = llvm::MDNode::get(M.getContext(), path_function_md_str);
+            call->setMetadata("path_function", path_function_md);
         }
     }
 }

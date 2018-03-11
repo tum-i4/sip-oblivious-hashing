@@ -75,7 +75,8 @@ private:
   void insertAssert(llvm::Instruction &I, llvm::Value* hash_value);
   void insertAssert(llvm::IRBuilder<> &builder,
                     llvm::Instruction &I,
-                    llvm::Value* hash_value);
+                    llvm::Value* hash_value,
+                    bool short_range_assert);
   void parse_skip_tags();
   bool hasSkipTag(llvm::Instruction& I);
   bool isInstAGuard(llvm::Instruction &I);

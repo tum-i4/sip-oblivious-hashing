@@ -1,5 +1,9 @@
 #include "Stats.h"
+
+namespace oh {
+
 using json = nlohmann::json;
+
 void OHStats::addNumberOfProtectedGuardArguments(int value){
 	this->numberOfProtectedGuardArguments += value;
 }
@@ -24,17 +28,64 @@ void OHStats::addNumberOfImplicitlyProtectedInstructions(int value){
 void OHStats::addNumberOfProtectedGuardInstructions(int value){
 	this->numberOfProtectedGuardInstructions+=value;
 }
+
+void OHStats::addNumberOfShortRangeImplicitlyProtectedInstructions(int value)
+{
+	numberOfShortRangeImplicitlyProtectedInstructions += value;
+}
+
+void OHStats::addNumberOfShortRangeProtectedInstructions(int value)
+{
+	numberOfShortRangeProtectedInstructions += value;
+}
+
+void OHStats::addNumberOfShortRangeProtectedArguments(int value)
+{
+	numberOfShortRangeProtectedArguments += value;
+}
+
+void OHStats::addNumberOfShortRangeHashCalls(int value)
+{
+	numberOfShortRangeHashCalls += value;
+}
+
+void OHStats::addNumberOfShortRangeAssertCalls(int value)
+{
+	numberOfShortRangeAssertCalls += value;
+}
+
+void OHStats::addNumberOfShortRangeProtectedGuardInstructions(int value)
+{
+	numberOfShortRangeProtectedGuardInstructions += value;
+}
+
+void OHStats::addNumberOfShortRangeProtectedGuardArguments(int value)
+{
+	numberOfShortRangeProtectedGuardArguments += value;
+}
+
 void OHStats::dumpJson(std::string filePath){
 	json j;
-	j["numberOfImplicitlyProtectedInstructions"] = this -> numberOfImplicitlyProtectedInstructions;
-	j["numberOfProtectedInstructions"] = this->numberOfProtectedInstructions;
-	j["numberOfProtectedArguments"] = this->numberOfProtectedArguments;
-	j["numberOfHashVariables"] = this->numberOfHashVariables;
-	j["numberOfHashCalls"] = this->numberOfHashCalls;
-	j["numberOfAssertCalls"] = this->numberOfAssertCalls;
-	j["numberOfProtectedGuardInstructions"] = this->numberOfProtectedGuardInstructions;
-	j["numberOfProtectedGuardArguments"] = this->numberOfProtectedGuardArguments;
+	j["numberOfImplicitlyProtectedInstructions"] = numberOfImplicitlyProtectedInstructions;
+	j["numberOfProtectedInstructions"] = numberOfProtectedInstructions;
+	j["numberOfProtectedArguments"] = numberOfProtectedArguments;
+	j["numberOfHashVariables"] = numberOfHashVariables;
+	j["numberOfHashCalls"] = numberOfHashCalls;
+	j["numberOfAssertCalls"] = numberOfAssertCalls;
+	j["numberOfProtectedGuardInstructions"] = numberOfProtectedGuardInstructions;
+	j["numberOfProtectedGuardArguments"] = numberOfProtectedGuardArguments;
+
+	j["numberOfShortRangeImplicitlyProtectedInstructions"] = numberOfShortRangeImplicitlyProtectedInstructions;
+	j["numberOfShortRangeProtectedInstructions"] = numberOfShortRangeProtectedInstructions;
+	j["numberOfShortRangeProtectedArguments"] = numberOfShortRangeProtectedArguments;
+	j["numberOfShortRangeHashCalls"] = numberOfShortRangeHashCalls;
+	j["numberOfShortRangeAssertCalls"] = numberOfShortRangeAssertCalls;
+	j["numberOfShortRangeProtectedGuardInstructions"] = numberOfShortRangeProtectedGuardInstructions;
+	j["numberOfShortRangeProtectedGuardArguments"] = numberOfShortRangeProtectedGuardArguments;
+
 	std::cout << j.dump(4) << std::endl;
 	std::ofstream o(filePath);
 	o << std::setw(4) << j << std::endl;
+}
+
 }
