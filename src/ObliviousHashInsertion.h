@@ -53,12 +53,10 @@ private:
                     unsigned path_num);
   void extract_path_function(llvm::Function* F,
                              const FunctionOHPaths::OHPath& path,
-                             std::vector<llvm::Instruction*>& skip_instructions,
                              unsigned path_num);
   bool process_block(llvm::Function* F, llvm::BasicBlock* B,
                      llvm::Value* hash_value, bool insert_assert,
-                     const SkipFunctionsPred& skipInstruction,
-                     std::vector<llvm::Instruction*>& skiped_instructions);
+                     const SkipFunctionsPred& skipInstruction);
   bool can_process_path(llvm::Function* F, const FunctionOHPaths::OHPath& path);
   bool can_insert_assertion_at_location(llvm::Function* F,
                                         llvm::BasicBlock* B,
