@@ -37,7 +37,7 @@ clang-3.9 $OH_PATH/assertions/response.c -c -fno-use-cxa-atexit -emit-llvm -o $O
     echo "No assert file is supplied.."
     #echo "opt-3.9 -load $INPUT_DEP_PATH/libInputDependency.so -load $UTILS_PATH -load $OH_LIB/liboblivious-hashing.so $bitcode -oh-insert -num-hash 1 -skip 'hash' -dump-oh-stat="oh.stats" -o out.bc"
     #exit
-    opt-3.9 -load $INPUT_DEP_PATH/libInputDependency.so -load $UTILS_PATH -load  $OH_LIB/liboblivious-hashing.so -load $INPUT_DEP_PATH/libTransforms.so $bitcode -dependency-stats -dependency-stats-file='dependency.stats' -lib-config=/home/sip/input-dependency-analyzer/library_configs/tetris_library_config.json -clone-functions -extract-functions -oh-insert -num-hash 1 -skip 'hash' -dump-oh-stat="oh.stats" -o out.bc
+    opt-3.9 -load $INPUT_DEP_PATH/libInputDependency.so -load $UTILS_PATH -load  $OH_LIB/liboblivious-hashing.so -load $INPUT_DEP_PATH/libTransforms.so $bitcode -dependency-stats -dependency-stats-file='dependency.stats' -lib-config=/home/sip/input-dependency-analyzer/library_configs/tetris_library_config.json  -oh-insert -num-hash 1 -skip 'hash' -dump-oh-stat="oh.stats" -o out.bc
 
 #fi
 

@@ -442,11 +442,20 @@ void ObliviousHashInsertionPass::insertAssert(llvm::IRBuilder<> &builder,
 
     ConstantInt *const_int = (ConstantInt *)ConstantInt::get(
             Type::getInt64Ty(Ctx), APInt(64, (assertCnt)* 1000000000000));
-    std::vector<Value *> values = {hash_value, const_int};
+    std::vector<Value *> values; 
+    if(short_range_assert){
+    	auto loaded_local_hash = builder.CreateLoad(hash_value);	    
+	builder.CreateStore(loaded_local_hash, TempVariable);
+	values = {TempVariable, const_int};
+    } else {
+    	values = {hash_value, const_int};
+    }
     ArrayRef<Value *> args(values);
     assertCnt++;
     // Stats add the assert call
     short_range_assert ? stats.addNumberOfShortRangeAssertCalls(1) : stats.addNumberOfAssertCalls(1);
+
+
     builder.CreateCall(assert, args);
 }
 
@@ -497,6 +506,10 @@ void ObliviousHashInsertionPass::setup_hash_values(llvm::Module &M)
                     llvm::GlobalValue::ExternalLinkage,
                     llvm::ConstantInt::get(llvm::Type::getInt64Ty(Ctx), 0)));
     }
+    TempVariable = new llvm::GlobalVariable(
+		         M, llvm::Type::getInt64Ty(Ctx), false,
+		         llvm::GlobalValue::ExternalLinkage,
+		         llvm::ConstantInt::get(llvm::Type::getInt64Ty(Ctx), 0));
 }
 
 bool ObliviousHashInsertionPass::skip_function(llvm::Function& F) const
@@ -574,7 +587,7 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
     llvm::dbgs() << "\n";
     llvm::BasicBlock* entry_block = path.front();
     llvm::LLVMContext &Ctx = entry_block->getContext();
-    auto local_hash = new llvm::AllocaInst(llvm::Type::getInt64Ty(Ctx), 0, 8, "local_hash");
+    auto local_hash = new llvm::AllocaInst(llvm::Type::getInt64Ty(Ctx), 0,8, "local_hash");
     auto alloca_pos = entry_block->getInstList().insert(entry_block->begin(), local_hash);
     auto local_store = new llvm::StoreInst(llvm::ConstantInt::get(llvm::Type::getInt64Ty(Ctx), 0), local_hash, false, 8);
     entry_block->getInstList().insertAfter(alloca_pos, local_store);

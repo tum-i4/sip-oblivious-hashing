@@ -96,6 +96,7 @@ private:
   llvm::Constant *hashFunc2;
   llvm::Constant *assert;
   std::vector<llvm::GlobalVariable *> hashPtrs;
+  llvm::GlobalVariable *TempVariable;
   std::vector<unsigned> usedHashIndices;
   std::unordered_set<llvm::BasicBlock*> m_processed_deterministic_blocks;
   std::unordered_map<llvm::Function*, std::vector<llvm::Function*>> m_path_functions;

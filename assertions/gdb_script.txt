@@ -7,6 +7,7 @@ b assert
 commands
 bt
 print *hash
+print expected
 continue
 end
 run
