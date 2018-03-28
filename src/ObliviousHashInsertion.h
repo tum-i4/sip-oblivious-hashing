@@ -54,27 +54,39 @@ private:
   void extract_path_function(llvm::Function* F,
                              const FunctionOHPaths::OHPath& path,
                              unsigned path_num);
+  bool can_instrument_instruction(llvm::Function* F,
+                                  llvm::Instruction* I,
+                                  const SkipFunctionsPred& skipInstructionPred);
+  bool process_path_block(llvm::Function* F, llvm::BasicBlock* B,
+                          llvm::Value* hash_value, bool insert_assert,
+                          const SkipFunctionsPred& skipInstructionPred,
+                          bool& local_hash_updated,
+                          int path_num);
   bool process_block(llvm::Function* F, llvm::BasicBlock* B,
-                     llvm::Value* hash_value, bool insert_assert,
-                     const SkipFunctionsPred& skipInstruction);
+                     bool insert_assert,
+                     const SkipFunctionsPred& skipInstructionPred);
   bool can_process_path(llvm::Function* F, const FunctionOHPaths::OHPath& path);
   bool can_insert_assertion_at_location(llvm::Function* F,
                                         llvm::BasicBlock* B,
                                         llvm::LoopInfo& LI);
   bool insertHashBuilder(llvm::IRBuilder<> &builder, llvm::Value *v, llvm::Value* hash_value);
   bool insertHash(llvm::Instruction &I, llvm::Value *v, llvm::Value* hash_value, bool before);
-  bool instrumentInst(llvm::Instruction& I, llvm::Value* hash_value);
+  bool instrumentInst(llvm::Instruction& I, llvm::Value* hash_to_update, bool is_local_hash);
   template <class CallInstTy>
   bool instrumentCallInst(CallInstTy* call,
                           int& protectedArguments,
                           llvm::Value* hash_value);
   bool instrumentGetElementPtrInst(llvm::GetElementPtrInst* getElemPtr, llvm::Value* hash_value);
   bool instrumentCmpInst(llvm::CmpInst* I, llvm::Value* hash_value);
-  void insertAssert(llvm::Instruction &I, llvm::Value* hash_value);
+  void insertAssert(llvm::Instruction &I,
+                    llvm::Value* hash_value,
+                    bool short_range_assert,
+                    llvm::Constant* assert_F);
   void insertAssert(llvm::IRBuilder<> &builder,
                     llvm::Instruction &I,
                     llvm::Value* hash_value,
-                    bool short_range_assert);
+                    bool short_range_assert,
+                    llvm::Constant* assert_F);
   void parse_skip_tags();
   bool hasSkipTag(llvm::Instruction& I);
   bool isInstAGuard(llvm::Instruction &I);
@@ -100,5 +112,6 @@ private:
   std::vector<unsigned> usedHashIndices;
   std::unordered_set<llvm::BasicBlock*> m_processed_deterministic_blocks;
   std::unordered_map<llvm::Function*, std::vector<llvm::Function*>> m_path_functions;
+  std::unordered_map<llvm::Function*, llvm::Constant*> m_path_assertions;
 };
 }

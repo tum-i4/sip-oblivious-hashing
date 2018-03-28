@@ -72,6 +72,15 @@ llvm::FunctionType* get_path_function_type(llvm::Function* F)
     return llvm::FunctionType::get(llvm::Type::getVoidTy(F->getContext()), params, false);
 }
 
+llvm::Constant* get_assert_function_with_name(llvm::Module* M, const std::string& f_name)
+{
+    llvm::LLVMContext &Ctx = M->getContext();
+    llvm::ArrayRef<llvm::Type *> params {llvm::Type::getInt64PtrTy(Ctx),
+                                         llvm::Type::getInt64Ty(Ctx)};
+    llvm::FunctionType *function_type = llvm::FunctionType::get(llvm::Type::getVoidTy(Ctx), params, false);
+    return M->getOrInsertFunction(f_name, function_type);
+}
+
 }
 
 char ObliviousHashInsertionPass::ID = 0;
@@ -221,18 +230,13 @@ bool ObliviousHashInsertionPass::hasSkipTag(llvm::Instruction& I)
     return false;
 }
 
-bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I, llvm::Value* hash_value)
+bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I,
+                                                llvm::Value* hash_to_update,
+                                                bool is_local_hash)
 {
     bool hashInserted = false;
     bool isCallGuard = false;
     int protectedArguments = 0;
-    llvm::Value* hash_to_update = hash_value;
-    if (!hash_to_update) {
-        unsigned index = get_random(num_hash);
-        usedHashIndices.push_back(index);
-        hash_to_update = hashPtrs.at(index);
-    }
-
     if (auto* cmp = llvm::dyn_cast<llvm::CmpInst>(&I)) {
         hashInserted = instrumentCmpInst(cmp, hash_to_update);
     } else if (llvm::ReturnInst::classof(&I)) {
@@ -267,8 +271,8 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I, llvm::Valu
     }
 
     if (hashInserted) {
-        hash_value ? stats.addNumberOfShortRangeHashCalls(1) : stats.addNumberOfHashCalls(1);
-        hash_value ? stats.addNumberOfShortRangeProtectedInstructions(1) : stats.addNumberOfProtectedInstructions(1);
+        is_local_hash ? stats.addNumberOfShortRangeHashCalls(1) : stats.addNumberOfHashCalls(1);
+        is_local_hash ? stats.addNumberOfShortRangeProtectedInstructions(1) : stats.addNumberOfProtectedInstructions(1);
         if (isCallGuard) {
             // When call is a guard we compute implicit OH stats
             // See #37
@@ -276,17 +280,17 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I, llvm::Valu
             if (checkeeSize > 0) {
                 dbgs()<<"Implicit protection instructions to add:"<<checkeeSize<<"\n";
             }
-            hash_value ? stats.addNumberOfShortRangeImplicitlyProtectedInstructions(checkeeSize)
-                       : stats.addNumberOfImplicitlyProtectedInstructions(checkeeSize);
+            is_local_hash ? stats.addNumberOfShortRangeImplicitlyProtectedInstructions(checkeeSize)
+                          : stats.addNumberOfImplicitlyProtectedInstructions(checkeeSize);
 
             //#20 increment number of protected guard instruction,
             // when at least one of the guard call arguments are
             // incorporated into the hash
-            hash_value ? stats.addNumberOfShortRangeProtectedGuardInstructions(1) : stats.addNumberOfProtectedGuardInstructions(1);
-            hash_value ? stats.addNumberOfShortRangeProtectedGuardArguments(protectedArguments)
+            is_local_hash ? stats.addNumberOfShortRangeProtectedGuardInstructions(1) : stats.addNumberOfProtectedGuardInstructions(1);
+            is_local_hash ? stats.addNumberOfShortRangeProtectedGuardArguments(protectedArguments)
                        : stats.addNumberOfProtectedGuardArguments(protectedArguments);
         } else {
-            hash_value ? stats.addNumberOfShortRangeProtectedArguments(protectedArguments) : stats.addNumberOfProtectedArguments(protectedArguments);
+            is_local_hash ? stats.addNumberOfShortRangeProtectedArguments(protectedArguments) : stats.addNumberOfProtectedArguments(protectedArguments);
         }
     }
 
@@ -390,31 +394,19 @@ bool ObliviousHashInsertionPass::instrumentCmpInst(llvm::CmpInst* I, llvm::Value
     return hashInserted;
 }
 
-void ObliviousHashInsertionPass::insertAssert(llvm::Instruction &I, llvm::Value* hash_value)
+void ObliviousHashInsertionPass::insertAssert(llvm::Instruction &I,
+                                              llvm::Value* hash_to_assert,
+                                              bool short_range_assert,
+                                              llvm::Constant* assert_F)
 {
-    if (!hash_value && usedHashIndices.empty()) {
-        return;
-    }
     llvm::LLVMContext &Ctx = I.getModule()->getContext();
     llvm::IRBuilder<> builder(&I);
     builder.SetInsertPoint(I.getParent(), builder.GetInsertPoint());
-    llvm::Value* hash_to_assert = hash_value;
-    if (!hash_value) {
-        if (llvm::CmpInst::classof(&I)) {
-            hash_to_assert = hashPtrs.at(usedHashIndices.back());
-        } else {
-            unsigned random_hash_idx =
-                usedHashIndices.at(get_random(usedHashIndices.size()));
-            assert(random_hash_idx < hashPtrs.size());
-            hash_to_assert = hashPtrs.at(random_hash_idx);
-        }
-    }
-
     // assert for cmp instruction should have been added
     if (llvm::CmpInst::classof(&I)) {
         // log the last value which contains hash for this cmp instruction
         // builder.SetInsertPoint(I.getParent(), ++builder.GetInsertPoint());
-        insertAssert(builder, I, hash_to_assert, hash_value != nullptr);
+        insertAssert(builder, I, hash_to_assert, short_range_assert, assert_F);
         return;
     }
     if (auto callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
@@ -422,20 +414,23 @@ void ObliviousHashInsertionPass::insertAssert(llvm::Instruction &I, llvm::Value*
         if (called_function != nullptr && !called_function->isIntrinsic() &&
                 called_function != hashFunc1 && called_function != hashFunc2) {
             // always insert assert before call instructions
-            insertAssert(builder, I, hash_to_assert, hash_value != nullptr);
+            insertAssert(builder, I, hash_to_assert, short_range_assert, assert_F);
             return;
         }
     }
-    if (get_random(2)) {
+    if (short_range_assert) {
+        insertAssert(builder, I, hash_to_assert, true, assert_F);
+    } else if (get_random(2)) {
         // insert randomly
-        insertAssert(builder, I, hash_to_assert, hash_value != nullptr);
+        insertAssert(builder, I, hash_to_assert, false, assert_F);
     }
 }
 
 void ObliviousHashInsertionPass::insertAssert(llvm::IRBuilder<> &builder,
                                               llvm::Instruction &instr,
                                               llvm::Value* hash_value,
-                                              bool short_range_assert)
+                                              bool short_range_assert,
+                                              llvm::Constant* assert_F)
 {
     llvm::LLVMContext &Ctx = builder.getContext();
     builder.SetInsertPoint(instr.getParent(), builder.GetInsertPoint());
@@ -456,7 +451,7 @@ void ObliviousHashInsertionPass::insertAssert(llvm::IRBuilder<> &builder,
     short_range_assert ? stats.addNumberOfShortRangeAssertCalls(1) : stats.addNumberOfAssertCalls(1);
 
 
-    builder.CreateCall(assert, args);
+    builder.CreateCall(assert_F, args);
 }
 
 void ObliviousHashInsertionPass::setup_guardMe_metadata(llvm::Module& M)
@@ -490,7 +485,7 @@ void ObliviousHashInsertionPass::setup_functions(llvm::Module &M)
     llvm::FunctionType *function_type = llvm::FunctionType::get(llvm::Type::getVoidTy(Ctx), params, false);
     hashFunc1 = M.getOrInsertFunction("hash1", function_type);
     hashFunc2 = M.getOrInsertFunction("hash2", function_type);
-    assert = M.getOrInsertFunction("assert", function_type);
+    assert = get_assert_function_with_name(&M, "assert");
 }
 
 void ObliviousHashInsertionPass::setup_hash_values(llvm::Module &M)
@@ -544,8 +539,6 @@ bool ObliviousHashInsertionPass::process_function(llvm::Function* F)
         modified |= process_path(F, paths[i], i);
     }
 
-    llvm::dbgs() << "\n Original function\n";
-    F->dump();
     return modified;
 }
 
@@ -593,35 +586,33 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
     entry_block->getInstList().insertAfter(alloca_pos, local_store);
 
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
-    const auto& skip_instruction_for_assertion = [&local_hash, &local_store, &F_input_dependency_info] (llvm::Instruction* instr)
+    const auto& skip_instruction_pred = [&local_hash, &local_store, &F_input_dependency_info] (llvm::Instruction* instr)
                                          {
                                             return instr == local_hash || instr == local_store;
                                          };
 
     llvm::LoopInfo &LI = getAnalysis<llvm::LoopInfoWrapperPass>(*F).getLoopInfo();
     bool has_inputdep_block = false;
+    bool local_hash_updated = false;
     for (auto& B : path) {
         bool can_insert_assertions = can_insert_assertion_at_location(F, B, LI);
         if (!F_input_dependency_info->isInputDependentBlock(B) && !F_input_dependency_info->isInputDepFunction()) {
             if (m_processed_deterministic_blocks.insert(B).second) {
-                if (!m_hashUpdated) {
-                    llvm::dbgs() << "InsertLogger skipped because there was no hash "
-                        "update in between!\n";
-                    continue;
-                }
-                modified |= process_block(F, B, nullptr, can_insert_assertions,
-                                          skip_instruction_for_assertion);
+                modified |= process_block(F, B, can_insert_assertions, skip_instruction_pred);
             }
         } else {
-            modified |= process_block(F, B, local_hash, can_insert_assertions,
-                                      skip_instruction_for_assertion);
+            can_insert_assertions &= (B == path.back());
+            modified |= process_path_block(F, B, local_hash, can_insert_assertions,
+                                           skip_instruction_pred, local_hash_updated,
+                                           path_num);
             has_inputdep_block = true;
         }
     }
     if (!modified || !has_inputdep_block) {
         local_store->eraseFromParent();
         local_hash->eraseFromParent();
-    } else {
+    }
+    else {
         extract_path_function(F, path, path_num);
     }
 
@@ -677,32 +668,75 @@ void ObliviousHashInsertionPass::extract_path_function(llvm::Function* F,
     m_path_functions[F].push_back(path_F);
 }
 
-bool ObliviousHashInsertionPass::process_block(llvm::Function* F, llvm::BasicBlock* B,
+bool ObliviousHashInsertionPass::can_instrument_instruction(llvm::Function* F,
+                                                            llvm::Instruction* I,
+                                                            const SkipFunctionsPred& skipInstructionPred)
+{
+    auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
+    if (skipInstruction(*I, F_input_dependency_info) || skipInstructionPred(I)) {
+        return false;
+    }
+    if (hasSkipTag(*I)) {
+        return false;
+    }
+    return !F_input_dependency_info->isInputDependent(I) || !F_input_dependency_info->isDataDependent(I);
+}
+
+bool ObliviousHashInsertionPass::process_path_block(llvm::Function* F, llvm::BasicBlock* B,
                                                llvm::Value* hash_value, bool insert_assert,
-                                               const SkipFunctionsPred& skipInstructionPred)
+                                               const SkipFunctionsPred& skipInstructionPred,
+                                               bool& local_hash_updated,
+                                               int path_num)
+{
+    bool modified = false;
+    assert(hash_value);
+    auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
+    for (auto &I : *B) {
+        if (can_instrument_instruction(F, &I, skipInstructionPred)) {
+            local_hash_updated |= instrumentInst(I, hash_value, true);
+            modified |= local_hash_updated;
+        }
+        if (!insert_assert || !local_hash_updated || &I != B->getTerminator()) {
+            continue;
+        }
+        const std::string& assert_name = "assert_" + get_path_function_name(F->getName(), path_num);
+        llvm::Constant* path_assert = get_assert_function_with_name(F->getParent(), assert_name);
+        m_path_assertions.insert(std::make_pair(F, path_assert));
+        insertAssert(I, hash_value, true, path_assert);
+    }
+    return modified;
+}
+
+bool ObliviousHashInsertionPass::process_block(llvm::Function* F, llvm::BasicBlock* B,
+                                               bool insert_assert, const SkipFunctionsPred& skipInstructionPred)
 {
     bool modified = false;
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
-    bool local_hash_updated = false;
-    bool local_hash = (hash_value != nullptr);
     for (auto &I : *B) {
-        if (skipInstruction(I, F_input_dependency_info) || skipInstructionPred(&I)) {
+        if (!can_instrument_instruction(F, &I, skipInstructionPred)) {
             continue;
         }
-        if (hasSkipTag(I)) {
+        unsigned index = get_random(num_hash);
+        usedHashIndices.push_back(index);
+        llvm::Value* hash_to_update = hashPtrs.at(index);
+        m_hashUpdated |= instrumentInst(I, hash_to_update, false);
+        modified |= m_hashUpdated;
+        if (!insert_assert || !m_hashUpdated || usedHashIndices.empty()) {
+            llvm::dbgs() << "Insert assertion skipped because there was no hash "
+                            "update in between!\n";
             continue;
         }
-        if (F_input_dependency_info->isInputDependent(&I)
-            && F_input_dependency_info->isDataDependent(&I)) {
-            continue;
+        llvm::Value* hash_to_assert = nullptr;
+        if (llvm::CmpInst::classof(&I)) {
+            hash_to_assert = hashPtrs.at(usedHashIndices.back());
+        } else {
+            unsigned random_hash_idx =
+                usedHashIndices.at(get_random(usedHashIndices.size()));
+            assert(random_hash_idx < hashPtrs.size());
+            hash_to_assert = hashPtrs.at(random_hash_idx);
         }
-        local_hash_updated |= instrumentInst(I, hash_value);
-        m_hashUpdated |= local_hash_updated;
-        modified |= local_hash_updated;
-        if (!insert_assert || skipInstructionPred(&I) || (local_hash && !local_hash_updated)) {
-            continue;
-        }
-        insertAssert(I, hash_value);
+        insertAssert(I, hash_to_assert, false, assert);
+        m_hashUpdated = false;
     }
     return modified;
 }
@@ -736,7 +770,7 @@ bool ObliviousHashInsertionPass::can_insert_assertion_at_location(
     // We shouldn't insert asserts when there was no hash update, see #9
     
     if (m_function_callsite_data->isFunctionCalledInLoop(F)) {
-        llvm::dbgs() << "InsertLogger skipped function:" << F->getName()
+        llvm::dbgs() << "Insert assertion skipped function:" << F->getName()
                      << " because it is called from a loop!\n";
         return false;
     }
@@ -746,7 +780,7 @@ bool ObliviousHashInsertionPass::can_insert_assertion_at_location(
         return false;
     }
     if (!m_function_mark_info->get_functions().empty() && m_function_mark_info->is_function(F)) {
-        llvm::dbgs() << "InsertLogger skipped function:" << F->getName()
+        llvm::dbgs() << "Insert assertion skipped function:" << F->getName()
                      << " because it is in the skip assert list!\n";
         return false;
     }
@@ -758,15 +792,15 @@ bool ObliviousHashInsertionPass::can_insert_assertion_at_location(
     // moving forward we should get asserts with multiple place holders
     // There is already an issue for this - #22
     int callsites = m_function_callsite_data->getNumberOfFunctionCallSites(F);
-    llvm::dbgs() << "InsertLogger evaluating function:" << F->getName()
+    llvm::dbgs() << "Insert assertion evaluating function:" << F->getName()
                  << " callsites detected =" << callsites << "\n";
     if (callsites > 1) {
-        llvm::dbgs() << "InsertLogger skipped function:" << F->getName()
+        llvm::dbgs() << "Insert assertion skipped function:" << F->getName()
                      << " because it has more than one call site, see #24.!\n";
         return false;
     }
     // END #24
-    llvm::dbgs() << "InsertLogger included function:" << F->getName()
+    llvm::dbgs() << "Insert assertion included function:" << F->getName()
                  << " because it is not in the skip  assert list!\n";
     return true;
 }
