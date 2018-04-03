@@ -51,9 +51,10 @@ private:
   bool process_path(llvm::Function* F,
                     const FunctionOHPaths::OHPath& path,
                     unsigned path_num);
-  void extract_path_function(llvm::Function* F,
-                             const FunctionOHPaths::OHPath& path,
-                             unsigned path_num);
+  void extract_path_function(llvm::Function* F, const std::string& assert_name);
+  //void extract_path_function(llvm::Function* F,
+  //                           const FunctionOHPaths::OHPath& path,
+  //                           unsigned path_num);
   bool can_instrument_instruction(llvm::Function* F,
                                   llvm::Instruction* I,
                                   const SkipFunctionsPred& skipInstructionPred);
@@ -112,6 +113,6 @@ private:
   std::vector<unsigned> usedHashIndices;
   std::unordered_set<llvm::BasicBlock*> m_processed_deterministic_blocks;
   std::unordered_map<llvm::Function*, std::vector<llvm::Function*>> m_path_functions;
-  std::unordered_map<llvm::Function*, llvm::Constant*> m_path_assertions;
+  std::unordered_map<llvm::Function*, std::vector<llvm::Function*>> m_path_assertions;
 };
 }

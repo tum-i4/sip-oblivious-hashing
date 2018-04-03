@@ -1,6 +1,7 @@
 #include "ObliviousHashInsertion.h"
 #include "FunctionCallSitesInformation.h"
 #include "Utils.h"
+#include "Slicer.h"
 
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/IR/BasicBlock.h"
@@ -16,6 +17,7 @@
 #include "llvm/IR/Metadata.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
+#include "llvm/Support/raw_os_ostream.h"
 
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include "llvm/Transforms/Utils/Cloning.h"
@@ -611,62 +613,69 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
     if (!modified || !has_inputdep_block) {
         local_store->eraseFromParent();
         local_hash->eraseFromParent();
+    } else {
+        extract_path_function(F, m_path_assertions[F].back()->getName());
     }
-    else {
-        extract_path_function(F, path, path_num);
-    }
-
     return modified;
 }
 
-void ObliviousHashInsertionPass::extract_path_function(llvm::Function* F,
-                                                       const FunctionOHPaths::OHPath& path,
-                                                       unsigned path_num)
+void ObliviousHashInsertionPass::extract_path_function(llvm::Function* F, const std::string& assert_name)
 {
-    auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
-    llvm::LLVMContext &Ctx = path.front()->getContext();
-    const std::string& f_name = get_path_function_name(F->getName(), path_num);
-    const bool is_input_dep_F = F_input_dependency_info->isInputDepFunction();
-    llvm::FunctionType* f_type = get_path_function_type(F);
-    llvm::Constant* result = F->getParent()->getOrInsertFunction(f_name, f_type);
-    llvm::Function* path_F = llvm::dyn_cast<llvm::Function>(result);
-    assert(path_F);
-
-    llvm::ValueToValueMapTy value_to_value_map;
-    // setup mapping for arguments
-    auto F_arg_it = F->arg_begin();
-    auto path_F_arg_it = path_F->arg_begin();
-    while (F_arg_it != F->arg_end() && path_F_arg_it != path_F->arg_end()) {
-        value_to_value_map.insert(std::make_pair(&*F_arg_it, llvm::WeakVH(&*path_F_arg_it)));
-        ++F_arg_it;
-        ++path_F_arg_it;
+    for (const auto& F_assert : m_path_assertions[F]) {
+        Slicer slicer(F, F_assert->getName());
+        slicer.slice();
+        break;
     }
-    assert(F_arg_it == F->arg_end() && path_F_arg_it == path_F->arg_end());
-    std::vector<llvm::BasicBlock*> cloned_path;
-    for (int i = 0; i < path.size(); ++i) {
-        llvm::BasicBlock* B = path[i];
-        auto clone = llvm::CloneBasicBlock(B, value_to_value_map, "", path_F);
-        cloned_path.push_back(clone);
-        if (i - 1 < 0) {
-            continue;
-        }
-        cloned_path[i-1]->getTerminator()->eraseFromParent();
-        llvm::IRBuilder<> builder(cloned_path[i-1]);
-        builder.CreateBr(clone);
-    }
-    cloned_path.back()->getTerminator()->eraseFromParent();
-    llvm::IRBuilder<> builder(cloned_path.back());
-    builder.CreateRetVoid();
-    llvm::SmallVector<llvm::BasicBlock*, 0> cloned_path_blocks(cloned_path.begin(), cloned_path.end());
-    llvm::remapInstructionsInBlocks(cloned_path_blocks, value_to_value_map);
-    if (!is_input_dep_F) {
-        value_to_value_map.clear();
-        m_path_functions[F].push_back(path_F);
-        return;
-    }
-    value_to_value_map.clear();
-    m_path_functions[F].push_back(path_F);
 }
+
+//void ObliviousHashInsertionPass::extract_path_function(llvm::Function* F,
+//                                                       const FunctionOHPaths::OHPath& path,
+//                                                       unsigned path_num)
+//{
+//    auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
+//    llvm::LLVMContext &Ctx = path.front()->getContext();
+//    const std::string& f_name = get_path_function_name(F->getName(), path_num);
+//    const bool is_input_dep_F = F_input_dependency_info->isInputDepFunction();
+//    llvm::FunctionType* f_type = get_path_function_type(F);
+//    llvm::Constant* result = F->getParent()->getOrInsertFunction(f_name, f_type);
+//    llvm::Function* path_F = llvm::dyn_cast<llvm::Function>(result);
+//    assert(path_F);
+//
+//    llvm::ValueToValueMapTy value_to_value_map;
+//    // setup mapping for arguments
+//    auto F_arg_it = F->arg_begin();
+//    auto path_F_arg_it = path_F->arg_begin();
+//    while (F_arg_it != F->arg_end() && path_F_arg_it != path_F->arg_end()) {
+//        value_to_value_map.insert(std::make_pair(&*F_arg_it, llvm::WeakVH(&*path_F_arg_it)));
+//        ++F_arg_it;
+//        ++path_F_arg_it;
+//    }
+//    assert(F_arg_it == F->arg_end() && path_F_arg_it == path_F->arg_end());
+//    std::vector<llvm::BasicBlock*> cloned_path;
+//    for (int i = 0; i < path.size(); ++i) {
+//        llvm::BasicBlock* B = path[i];
+//        auto clone = llvm::CloneBasicBlock(B, value_to_value_map, "", path_F);
+//        cloned_path.push_back(clone);
+//        if (i - 1 < 0) {
+//            continue;
+//        }
+//        cloned_path[i-1]->getTerminator()->eraseFromParent();
+//        llvm::IRBuilder<> builder(cloned_path[i-1]);
+//        builder.CreateBr(clone);
+//    }
+//    cloned_path.back()->getTerminator()->eraseFromParent();
+//    llvm::IRBuilder<> builder(cloned_path.back());
+//    builder.CreateRetVoid();
+//    llvm::SmallVector<llvm::BasicBlock*, 0> cloned_path_blocks(cloned_path.begin(), cloned_path.end());
+//    llvm::remapInstructionsInBlocks(cloned_path_blocks, value_to_value_map);
+//    if (!is_input_dep_F) {
+//        value_to_value_map.clear();
+//        m_path_functions[F].push_back(path_F);
+//        return;
+//    }
+//    value_to_value_map.clear();
+//    m_path_functions[F].push_back(path_F);
+//}
 
 bool ObliviousHashInsertionPass::can_instrument_instruction(llvm::Function* F,
                                                             llvm::Instruction* I,
@@ -701,7 +710,7 @@ bool ObliviousHashInsertionPass::process_path_block(llvm::Function* F, llvm::Bas
         }
         const std::string& assert_name = "assert_" + get_path_function_name(F->getName(), path_num);
         llvm::Constant* path_assert = get_assert_function_with_name(F->getParent(), assert_name);
-        m_path_assertions.insert(std::make_pair(F, path_assert));
+        m_path_assertions[F].push_back(llvm::dyn_cast<llvm::Function>(path_assert));
         insertAssert(I, hash_value, true, path_assert);
     }
     return modified;
@@ -828,7 +837,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
         modified |= process_function(&F);
     }
 
-    insert_calls_for_path_functions(M);
+    //insert_calls_for_path_functions(M);
 
     if (!DumpOHStat.empty()) {
         dbgs() << "OH stats is requested, dumping stat file...\n";
