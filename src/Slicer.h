@@ -1,8 +1,8 @@
 #pragma once
 
 #include "llvm/IR/Module.h"
-#include "llvm-dg/Slicer.h"
-#include "llvm-dg/LLVMDependenceGraph.h"
+#include "llvm-dg/llvm/LLVMDependenceGraph.h"
+#include "llvm-dg/llvm/Slicer.h"
 #include "llvm-dg/llvm/analysis/PointsTo/PointsTo.h"
 #include "llvm-dg/llvm/analysis/ReachingDefinitions/ReachingDefinitions.h"
 
@@ -22,7 +22,7 @@ class Slicer
 public:
     using Slice = std::vector<llvm::Instruction*>;
 public:
-    Slicer(llvm::Function* F, const std::string& criteria);
+    Slicer(llvm::Module* M);
 
     const dg::LLVMDependenceGraph& getDG() const
     {
@@ -34,19 +34,22 @@ public:
         return m_dg;
     }
 
-    bool slice();
+    const Slice& getSlice() const
+    {
+        return m_slice;
+    }
+
+    bool slice(llvm::Function* F, const std::string& criteria);
 
 private:
     void computeEdges();
     void buildDG();
-    void computeSlice();
+    void computeSlice(llvm::Function* F);
     void computeFunctionSlice(llvm::Function* F, dg::LLVMDependenceGraph* F_dg);
 
 private:
-    std::string m_criteria;
     unsigned m_slice_id;
     llvm::Module *m_module;
-    llvm::Function *m_F;
     std::unique_ptr<dg::LLVMPointerAnalysis> m_PTA;
     std::unique_ptr<dg::analysis::rd::LLVMReachingDefinitions> m_RD;
     dg::LLVMDependenceGraph m_dg;

@@ -10,52 +10,47 @@
 #include "llvm/Support/raw_ostream.h"
 
 // dg includes
-#include "llvm-dg/Slicer.h"
-#include "llvm-dg/LLVMDG2Dot.h"
 #include "llvm-dg/llvm/analysis/DefUse.h"
 #include "llvm-dg/analysis/PointsTo/PointsToFlowInsensitive.h"
 #include "llvm-dg/analysis/PointsTo/PointsToFlowSensitive.h"
 #include "llvm-dg/analysis/PointsTo/PointsToWithInvalidate.h"
 #include "llvm-dg/analysis/PointsTo/Pointer.h"
+#include "llvm-dg/llvm/analysis/PointsTo/PointsTo.h"
 
 #include <map>
 
 namespace oh {
 
-Slicer::Slicer(llvm::Function* F, const std::string& criteria)
-    : m_criteria(criteria)
-    , m_slice_id(0)
-    , m_module(F->getParent())
-    , m_F(F)
-    , m_PTA(new LLVMPointerAnalysis(m_module))
+Slicer::Slicer(llvm::Module* M)
+    : m_slice_id(0)
+    , m_module(M)
+    , m_PTA(new dg::LLVMPointerAnalysis(m_module))
     , m_RD(new dg::analysis::rd::LLVMReachingDefinitions(m_module, m_PTA.get()))
 {
+    buildDG();
+    computeEdges();
 }
 
-bool Slicer::slice()
+bool Slicer::slice(llvm::Function* F, const std::string& criteria)
 {
+    m_slice.clear();
     std::set<dg::LLVMNode *> callsites;
 
-    bool ret = m_dg.getCallSites(m_criteria.c_str(), &callsites);
+    bool ret = m_dg.getCallSites(criteria.c_str(), &callsites);
     if (!ret) {
         llvm::errs() << "Did not find slicing criterion: "
-                     << m_criteria << "\n";
+                     << criteria << "\n";
         return false;
     }
 
-    // if we found slicing criterion, compute the rest
-    // of the graph. Otherwise just slice away the whole graph
-    // Also compute the edges when the user wants to annotate
-    // the file - due to debugging.
-    computeEdges();
+    // make sure for each slice call m_slice_id is unique
+    ++m_slice_id;
 
-    m_slice_id = 0xdead;
-
-    for (LLVMNode *start : callsites) {
+    for (dg::LLVMNode *start : callsites) {
         m_slice_id = m_slicer.mark(start, m_slice_id);
     }
 
-    computeSlice();
+    computeSlice(F);
 
     return true;
 }
@@ -73,30 +68,32 @@ void Slicer::computeEdges()
 void Slicer::buildDG()
 {
     m_PTA->run<dg::analysis::pta::PointsToFlowInsensitive>();
-    m_dg.build(&*m_module, m_PTA.get());
+    m_dg.build(m_module, m_PTA.get());
 }
 
-void Slicer::computeSlice()
+void Slicer::computeSlice(llvm::Function* F)
 {
-    const auto& CF = getConstructedFunctions();
-    for (auto& F : CF) {
-        if (F.first->getName() != m_F->getName()) {
+    const auto& CFs = dg::getConstructedFunctions();
+    for (auto& cf : CFs) {
+        if (cf.first->getName() != F->getName()) {
             continue;
         }
-        computeFunctionSlice(llvm::dyn_cast<llvm::Function>(F.first), F.second);
+        computeFunctionSlice(llvm::dyn_cast<llvm::Function>(cf.first), cf.second);
     }
 }
 
 void Slicer::computeFunctionSlice(llvm::Function* F, dg::LLVMDependenceGraph* F_dg)
 {
     for (auto I = F_dg->begin(), E = F_dg->end(); I != E; ++I) {
-        if (I->second->getSlice() == 0) {
+        if (I->second->getSlice() != m_slice_id) {
             continue;
         }
-        if (auto* blk = llvm::dyn_cast<llvm::BasicBlock>(I->second->getValue())) {
-            llvm::dbgs() << "Slice Block: " << blk->getName() << "\n";
-        } else if (auto* instr = llvm::dyn_cast<llvm::Instruction>(I->second->getValue())) {
-            llvm::dbgs() << "Slice Instruction: " << instr->getName() << "\n";
+        if (auto* instr = llvm::dyn_cast<llvm::Instruction>(I->second->getValue())) {
+            //llvm::dbgs() << "Slice ID: " << I->second->getSlice() << " ";
+            //llvm::dbgs() << "Slice Instruction: " << *instr << "\n";
+            m_slice.push_back(instr);
+        } else {
+            llvm::dbgs() << "Warning: dg node is not an instruction " << *I->second->getValue() << "\n";
         }
     }
 

@@ -17,7 +17,6 @@
 #include "llvm/IR/Metadata.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
-#include "llvm/Support/raw_os_ostream.h"
 
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include "llvm/Transforms/Utils/Cloning.h"
@@ -613,18 +612,21 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
     if (!modified || !has_inputdep_block) {
         local_store->eraseFromParent();
         local_hash->eraseFromParent();
-    } else {
-        extract_path_function(F, m_path_assertions[F].back()->getName());
     }
     return modified;
 }
 
-void ObliviousHashInsertionPass::extract_path_function(llvm::Function* F, const std::string& assert_name)
+void ObliviousHashInsertionPass::extract_path_functions()
 {
-    for (const auto& F_assert : m_path_assertions[F]) {
-        Slicer slicer(F, F_assert->getName());
-        slicer.slice();
-        break;
+    Slicer slicer(m_M);
+    for (const auto& F_asserts : m_path_assertions) {
+        for (const auto& F_assert : F_asserts.second) {
+            slicer.slice(F_asserts.first, F_assert->getName());
+            llvm::dbgs() << "Slice for " << F_assert->getName() << "\n";
+            for (const auto& slice_I : slicer.getSlice()) {
+                llvm::dbgs() << "   " << *slice_I << "\n";
+            }
+        }
     }
 }
 
@@ -820,6 +822,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
     assertCnt = 1;
     bool modified = false;
     srand(time(NULL));
+    m_M = &M;
 
     parse_skip_tags();
     setup_guardMe_metadata(M);
@@ -836,6 +839,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
         ++countProcessedFuncs;
         modified |= process_function(&F);
     }
+    extract_path_functions();
 
     //insert_calls_for_path_functions(M);
 

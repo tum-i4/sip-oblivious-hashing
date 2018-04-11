@@ -51,7 +51,7 @@ private:
   bool process_path(llvm::Function* F,
                     const FunctionOHPaths::OHPath& path,
                     unsigned path_num);
-  void extract_path_function(llvm::Function* F, const std::string& assert_name);
+  void extract_path_functions();
   //void extract_path_function(llvm::Function* F,
   //                           const FunctionOHPaths::OHPath& path,
   //                           unsigned path_num);
@@ -93,6 +93,7 @@ private:
   bool isInstAGuard(llvm::Instruction &I);
 
 private:
+  llvm::Module* m_M;
   OHStats stats;
   using InputDependencyAnalysisType = input_dependency::InputDependencyAnalysisPass::InputDependencyAnalysisType;
   InputDependencyAnalysisType m_input_dependency_info;
