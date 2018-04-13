@@ -13,6 +13,7 @@
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 
+#include <algorithm>
 #include <unordered_map>
 
 namespace wrappers {
@@ -204,6 +205,11 @@ void FunctionOHPaths::dump() const
         }
         llvm::dbgs() << "\n";
     }
+}
+
+bool FunctionOHPaths::pathContainsBlock(const OHPath& path, llvm::BasicBlock* block)
+{
+    return std::find(path.begin(), path.end(), block) != path.end();
 }
 
 void FunctionOHPaths::dfsConstruct(DomTreeNode* node, OHPath path)

@@ -14,6 +14,7 @@
 #include <vector>
 
 namespace llvm {
+class AAResults;
 class BasicBlock;
 class CallInst;
 class CmpInst;
@@ -67,6 +68,7 @@ private:
                      bool insert_assert,
                      const SkipFunctionsPred& skipInstructionPred);
   bool can_process_path(llvm::Function* F, const FunctionOHPaths::OHPath& path);
+  bool is_argument_used_in_path(llvm::Function* F,  const FunctionOHPaths::OHPath& path);
   bool can_insert_assertion_at_location(llvm::Function* F,
                                         llvm::BasicBlock* B,
                                         llvm::LoopInfo& LI);
@@ -95,6 +97,7 @@ private:
 private:
   llvm::Module* m_M;
   OHStats stats;
+  llvm::AAResults* m_AAR;
   using InputDependencyAnalysisType = input_dependency::InputDependencyAnalysisPass::InputDependencyAnalysisType;
   InputDependencyAnalysisType m_input_dependency_info;
   FunctionInformation* m_function_mark_info;

@@ -74,6 +74,8 @@ public:
     // debug function
     void dump() const;
 
+    static bool pathContainsBlock(const OHPath& path, llvm::BasicBlock* block);
+
 private:
     using DomTreeNode = llvm::DomTreeNodeBase<llvm::BasicBlock>;
     void dfsConstruct(DomTreeNode* node, OHPath path);

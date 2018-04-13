@@ -4,6 +4,9 @@
 #include "Slicer.h"
 
 #include "llvm/Analysis/LoopInfo.h"
+#include "llvm/Analysis/AliasAnalysis.h"
+#include "llvm/Analysis/AssumptionCache.h"
+#include "llvm/Analysis/BasicAliasAnalysis.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Dominators.h"
@@ -103,6 +106,8 @@ static llvm::cl::opt<std::string> SkipTaggedInstructions(
 void ObliviousHashInsertionPass::getAnalysisUsage(llvm::AnalysisUsage &AU) const
 {
     AU.setPreservesAll();
+    AU.addRequired<llvm::AssumptionCacheTracker>(); // otherwise run-time error
+    llvm::getAAResultsAnalysisUsage(AU);
     AU.addRequired<input_dependency::InputDependencyAnalysisPass>();
     AU.addRequired<llvm::LoopInfoWrapperPass>();
     AU.addRequired<llvm::DominatorTreeWrapperPass>();
@@ -570,13 +575,13 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
                                               unsigned path_num)
 {
     bool modified = false;
-    if (!can_process_path(F, path)) {
-        llvm::dbgs() << "Input dependent path containing a loop. Can not process\n";
-        return modified;
-    }
-    llvm::dbgs() << "Process path\n";
+    llvm::dbgs() << "Processing path: ";
     for (const auto& B : path) {
         llvm::dbgs() << B->getName() << "  ";
+    }
+    if (!can_process_path(F, path)) {
+        llvm::dbgs() << "\nCan not process path\n";
+        return modified;
     }
     llvm::dbgs() << "\n";
     llvm::BasicBlock* entry_block = path.front();
@@ -622,10 +627,10 @@ void ObliviousHashInsertionPass::extract_path_functions()
     for (const auto& F_asserts : m_path_assertions) {
         for (const auto& F_assert : F_asserts.second) {
             slicer.slice(F_asserts.first, F_assert->getName());
-            llvm::dbgs() << "Slice for " << F_assert->getName() << "\n";
-            for (const auto& slice_I : slicer.getSlice()) {
-                llvm::dbgs() << "   " << *slice_I << "\n";
-            }
+            //llvm::dbgs() << "Slice for " << F_assert->getName() << "\n";
+            //for (const auto& slice_I : slicer.getSlice()) {
+            //    llvm::dbgs() << "   " << *slice_I << "\n";
+            //}
         }
     }
 }
@@ -769,7 +774,71 @@ bool ObliviousHashInsertionPass::can_process_path(llvm::Function* F, const Funct
             return false;
         }
     }
-    // note that even when this function returns true, some of the blocks in the path may be skipped while adding hashes
+    if (F_input_dependency_info->isInputDepFunction()) {
+        return true;
+    }
+    // check is an argument is used inside non-deterministic block for input independent functions
+    return is_argument_used_in_path(F, path);
+}
+
+bool ObliviousHashInsertionPass::is_argument_used_in_path(llvm::Function* F,  const FunctionOHPaths::OHPath& path)
+{
+    auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
+    std::unordered_set<llvm::Value*> arg_aliases;
+    auto arg_it = F->arg_begin();
+    while (arg_it != F->arg_end()) {
+        for (auto user : arg_it->users()) {
+            auto* user_inst = llvm::dyn_cast<llvm::Instruction>(user);
+            if (!user_inst) {
+                continue;
+            }
+            auto* user_block = user_inst->getParent();
+            if (!FunctionOHPaths::pathContainsBlock(path, user_block)) {
+                continue;
+            }
+            if (F_input_dependency_info->isInputDependentBlock(user_block)) {
+                return false;
+            }
+            if (auto* storeInst = llvm::dyn_cast<llvm::StoreInst>(user_inst)) {
+                if (storeInst->getValueOperand() == &*arg_it) {
+                    arg_aliases.insert(storeInst->getPointerOperand());
+                    ++arg_it;
+                    continue;
+                }
+            }
+            for (auto& use : user_inst->operands()) {
+                if (auto* use_arg = llvm::dyn_cast<llvm::Argument>(use)) {
+                    if (use_arg == &*arg_it) {
+                        continue;
+                    }
+                }
+                if (auto* use_value = llvm::dyn_cast<llvm::Value>(use)) {
+                    const auto& alias = m_AAR->alias(use_value, &*arg_it);
+                    if (alias != llvm::AliasResult::NoAlias) {
+                        arg_aliases.insert(use_value);
+                    }
+                }
+            }
+            ++arg_it;
+        }
+    }
+    for (auto& arg_alias : arg_aliases) {
+        for (auto alias_user : arg_alias->users()) {
+            if (auto* inst = llvm::dyn_cast<llvm::Instruction>(alias_user)) {
+                auto* parent = inst->getParent();
+                if (!FunctionOHPaths::pathContainsBlock(path, parent)) {
+                    continue;
+                }
+                if (!F_input_dependency_info->isInputDependentBlock(parent)) {
+                    continue;
+                }
+                if (F_input_dependency_info->isDataDependent(inst)) {
+                    continue;
+                }
+                return false;
+            }
+        }
+    }
     return true;
 }
 
@@ -830,6 +899,14 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
     setup_functions(M);
     setup_hash_values(M);
 
+    llvm::Optional<llvm::BasicAAResult> BAR;
+    llvm::Optional<llvm::AAResults> AAR;
+    auto AARGetter = [&](llvm::Function* F) -> llvm::AAResults* {
+        BAR.emplace(llvm::createLegacyPMBasicAAResult(*this, *F));
+        AAR.emplace(llvm::createLegacyPMAAResults(*this, *F, *BAR));
+        return &*AAR;
+    };
+
     int countProcessedFuncs = 0;
     m_hashUpdated = false;
     for (auto &F : M) {
@@ -837,6 +914,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
             continue;
         }
         ++countProcessedFuncs;
+        m_AAR = AARGetter(&F);
         modified |= process_function(&F);
     }
     extract_path_functions();
