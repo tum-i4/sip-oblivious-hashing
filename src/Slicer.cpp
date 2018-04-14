@@ -84,19 +84,15 @@ void Slicer::computeSlice(llvm::Function* F)
 
 void Slicer::computeFunctionSlice(llvm::Function* F, dg::LLVMDependenceGraph* F_dg)
 {
-    for (auto I = F_dg->begin(), E = F_dg->end(); I != E; ++I) {
-        if (I->second->getSlice() != m_slice_id) {
-            continue;
-        }
-        if (auto* instr = llvm::dyn_cast<llvm::Instruction>(I->second->getValue())) {
-            //llvm::dbgs() << "Slice ID: " << I->second->getSlice() << " ";
-            //llvm::dbgs() << "Slice Instruction: " << *instr << "\n";
-            m_slice.push_back(instr);
-        } else {
-            llvm::dbgs() << "Warning: dg node is not an instruction " << *I->second->getValue() << "\n";
+    for (auto& B : *F) {
+        for (auto& I : B) {
+            auto node = F_dg->find(&I);
+            if (node == F_dg->end() || node->second->getSlice() != m_slice_id) {
+                continue;
+            }
+            m_slice.push_back(&I);
         }
     }
-
 }
 
 } // namespace oh
