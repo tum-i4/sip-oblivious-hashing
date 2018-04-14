@@ -7,12 +7,13 @@
 
 void response() {
 	printf("Response mechanism.\n");
-	exit(1);
+//	exit(1);
 }
 
-void assert(long long* hash, long long expected) {
-	if(DEBUG) printf("\tAssert: %lld==%lld\n", *hash, expected);
-	if(*hash != expected){
+void assert(long long hash, long long expected) {
+	//if(DEBUG)
+    printf("\tAssert: %lld==%lld\n", hash, expected);
+	if(hash != expected){
 		void* callstack[128];
 		int i, frames = backtrace(callstack, 128);
 		char** strs = backtrace_symbols(callstack, frames);
