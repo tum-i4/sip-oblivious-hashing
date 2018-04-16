@@ -34,9 +34,16 @@ public:
         return m_dg;
     }
 
+    dg::LLVMDependenceGraph* getDG(llvm::Function* F);
+
     const Slice& getSlice() const
     {
         return m_slice;
+    }
+
+    const unsigned getSliceId() const
+    {
+        return m_slice_id;
     }
 
     bool slice(llvm::Function* F, const std::string& criteria);

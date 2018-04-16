@@ -4,6 +4,7 @@
 
 #include "FunctionOHPaths.h"
 #include "Stats.h"
+#include "Slicer.h"
 #include "input-dependency/InputDependencyAnalysisPass.h"
 #include "../../self-checksumming/src/FunctionInfo.h"
 
@@ -53,9 +54,10 @@ private:
                     const FunctionOHPaths::OHPath& path,
                     unsigned path_num);
   void extract_path_functions();
-  //void extract_path_function(llvm::Function* F,
-  //                           const FunctionOHPaths::OHPath& path,
-  //                           unsigned path_num);
+  void extract_path_function(Slicer::Slice slice,
+                             llvm::Function* F,
+                             llvm::Function* path_F,
+                             const FunctionOHPaths::OHPath& path);
   bool can_instrument_instruction(llvm::Function* F,
                                   llvm::Instruction* I,
                                   const SkipFunctionsPred& skipInstructionPred);
@@ -103,6 +105,7 @@ private:
   FunctionInformation* m_function_mark_info;
   FunctionInformation* m_function_filter_info;
   const FunctionCallSiteData* m_function_callsite_data;
+  std::unique_ptr<Slicer> m_slicer;
 
   bool m_hashUpdated;
   bool hasTagsToSkip;
@@ -117,6 +120,9 @@ private:
   std::vector<unsigned> usedHashIndices;
   std::unordered_set<llvm::BasicBlock*> m_processed_deterministic_blocks;
   std::unordered_map<llvm::Function*, std::vector<llvm::Function*>> m_path_functions;
+  // assertion function for paths for each function
   std::unordered_map<llvm::Function*, std::vector<llvm::Function*>> m_path_assertions;
+  // path for each assert
+  std::unordered_map<llvm::Function*, FunctionOHPaths::OHPath> m_function_path;
 };
 }

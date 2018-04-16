@@ -1,7 +1,6 @@
 #include "ObliviousHashInsertion.h"
 #include "FunctionCallSitesInformation.h"
 #include "Utils.h"
-#include "Slicer.h"
 
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/AliasAnalysis.h"
@@ -79,7 +78,7 @@ llvm::FunctionType* get_path_function_type(llvm::Function* F)
 llvm::Constant* get_assert_function_with_name(llvm::Module* M, const std::string& f_name)
 {
     llvm::LLVMContext &Ctx = M->getContext();
-    llvm::ArrayRef<llvm::Type *> params {llvm::Type::getInt64PtrTy(Ctx),
+    llvm::ArrayRef<llvm::Type *> params {llvm::Type::getInt64Ty(Ctx),
                                          llvm::Type::getInt64Ty(Ctx)};
     llvm::FunctionType *function_type = llvm::FunctionType::get(llvm::Type::getVoidTy(Ctx), params, false);
     return M->getOrInsertFunction(f_name, function_type);
@@ -444,13 +443,15 @@ void ObliviousHashInsertionPass::insertAssert(llvm::IRBuilder<> &builder,
     ConstantInt *const_int = (ConstantInt *)ConstantInt::get(
             Type::getInt64Ty(Ctx), APInt(64, (assertCnt)* 1000000000000));
     std::vector<Value *> values; 
+    llvm::LoadInst* hash_load = nullptr;
     if(short_range_assert){
-    	auto loaded_local_hash = builder.CreateLoad(hash_value);	    
-	builder.CreateStore(loaded_local_hash, TempVariable);
-	values = {TempVariable, const_int};
+        auto loaded_local_hash = builder.CreateLoad(hash_value);
+        builder.CreateStore(loaded_local_hash, TempVariable);
+        hash_load = builder.CreateLoad(TempVariable);
     } else {
-    	values = {hash_value, const_int};
+        hash_load = builder.CreateLoad(hash_value);
     }
+    values = {hash_load, const_int};
     ArrayRef<Value *> args(values);
     assertCnt++;
     // Stats add the assert call
@@ -618,15 +619,19 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
         local_store->eraseFromParent();
         local_hash->eraseFromParent();
     }
+    if (m_path_assertions.find(F) != m_path_assertions.end() && !m_path_assertions[F].empty()) {
+        m_function_path.insert(std::make_pair(m_path_assertions[F].back(), path));
+    }
     return modified;
 }
 
 void ObliviousHashInsertionPass::extract_path_functions()
 {
-    Slicer slicer(m_M);
     for (const auto& F_asserts : m_path_assertions) {
+        llvm::dbgs() << "F: " << F_asserts.first->getName() << "\n";
         for (const auto& F_assert : F_asserts.second) {
-            slicer.slice(F_asserts.first, F_assert->getName());
+            m_slicer->slice(F_asserts.first, F_assert->getName());
+            //extract_path_function(slicer.getSlice(), F_asserts.first, F_assert, m_function_path[F_assert]);
             //llvm::dbgs() << "Slice for " << F_assert->getName() << "\n";
             //for (const auto& slice_I : slicer.getSlice()) {
             //    llvm::dbgs() << "   " << *slice_I << "\n";
@@ -635,54 +640,64 @@ void ObliviousHashInsertionPass::extract_path_functions()
     }
 }
 
-//void ObliviousHashInsertionPass::extract_path_function(llvm::Function* F,
-//                                                       const FunctionOHPaths::OHPath& path,
-//                                                       unsigned path_num)
-//{
-//    auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
-//    llvm::LLVMContext &Ctx = path.front()->getContext();
-//    const std::string& f_name = get_path_function_name(F->getName(), path_num);
-//    const bool is_input_dep_F = F_input_dependency_info->isInputDepFunction();
-//    llvm::FunctionType* f_type = get_path_function_type(F);
-//    llvm::Constant* result = F->getParent()->getOrInsertFunction(f_name, f_type);
-//    llvm::Function* path_F = llvm::dyn_cast<llvm::Function>(result);
-//    assert(path_F);
-//
-//    llvm::ValueToValueMapTy value_to_value_map;
-//    // setup mapping for arguments
-//    auto F_arg_it = F->arg_begin();
-//    auto path_F_arg_it = path_F->arg_begin();
-//    while (F_arg_it != F->arg_end() && path_F_arg_it != path_F->arg_end()) {
-//        value_to_value_map.insert(std::make_pair(&*F_arg_it, llvm::WeakVH(&*path_F_arg_it)));
-//        ++F_arg_it;
-//        ++path_F_arg_it;
-//    }
-//    assert(F_arg_it == F->arg_end() && path_F_arg_it == path_F->arg_end());
-//    std::vector<llvm::BasicBlock*> cloned_path;
-//    for (int i = 0; i < path.size(); ++i) {
-//        llvm::BasicBlock* B = path[i];
-//        auto clone = llvm::CloneBasicBlock(B, value_to_value_map, "", path_F);
-//        cloned_path.push_back(clone);
-//        if (i - 1 < 0) {
-//            continue;
-//        }
-//        cloned_path[i-1]->getTerminator()->eraseFromParent();
-//        llvm::IRBuilder<> builder(cloned_path[i-1]);
-//        builder.CreateBr(clone);
-//    }
-//    cloned_path.back()->getTerminator()->eraseFromParent();
-//    llvm::IRBuilder<> builder(cloned_path.back());
-//    builder.CreateRetVoid();
-//    llvm::SmallVector<llvm::BasicBlock*, 0> cloned_path_blocks(cloned_path.begin(), cloned_path.end());
-//    llvm::remapInstructionsInBlocks(cloned_path_blocks, value_to_value_map);
-//    if (!is_input_dep_F) {
-//        value_to_value_map.clear();
-//        m_path_functions[F].push_back(path_F);
-//        return;
-//    }
-//    value_to_value_map.clear();
-//    m_path_functions[F].push_back(path_F);
-//}
+void ObliviousHashInsertionPass::extract_path_function(Slicer::Slice slice,
+                                                       llvm::Function* F,
+                                                       llvm::Function* path_F,
+                                                       const FunctionOHPaths::OHPath& path)
+{
+    llvm::dbgs() << "Refine path function of " << F->getName() << "  " << path_F->getName() << "\n";
+    for (auto I : slice) {
+        llvm::dbgs() << *I << "\n";
+    }
+
+    auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
+    const bool is_input_dep_F = F_input_dependency_info->isInputDepFunction();
+    llvm::LLVMContext &Ctx = path.front()->getContext();
+    llvm::ValueToValueMapTy value_to_value_map;
+
+    llvm::BasicBlock* entry_block = llvm::BasicBlock::Create(path_F->getParent()->getContext(), "entry", path_F);
+    auto& instructions = entry_block->getInstList();
+    for (auto I : slice) {
+        // skip instructions that are outside of the path
+        if (!FunctionOHPaths::pathContainsBlock(path, I->getParent())) {
+            continue;
+        }
+        // skip data dependent instructions
+        if (F_input_dependency_info->isDataDependent(I)) {
+            if (!llvm::dyn_cast<llvm::AllocaInst>(I)) {
+                continue;
+            }
+        }
+        // skip global hash assertion and hashes
+        if (auto* callInst = llvm::dyn_cast<llvm::CallInst>(I)) {
+            llvm::Function* calledF = callInst->getCalledFunction();
+            if (calledF == assert) {
+                continue;
+            } else if (calledF == hashFunc1 || calledF == hashFunc2) {
+                if (std::find(hashPtrs.begin(), hashPtrs.end(), callInst->getOperand(0)) != hashPtrs.end()) {
+                    continue;
+                }
+            }
+        }
+        // no branches in extracted function
+        // TODO: check correctness of this assumption
+        if (auto* branchInst = llvm::dyn_cast<llvm::BranchInst>(I)) {
+            continue;
+        }
+        //llvm::dbgs() << *I << "\n";
+        auto* cloned_I = I->clone();
+        instructions.push_back(cloned_I);
+        value_to_value_map.insert(std::make_pair(I, llvm::WeakVH(cloned_I)));
+    }
+    llvm::IRBuilder<> builder(entry_block);
+    builder.CreateRetVoid();
+    llvm::dbgs() << "After refining the slice\n";
+    for (const auto& I : instructions) {
+        llvm::dbgs() << I << "\n";
+    }
+    // mapper.remapInstruction(instr);
+    value_to_value_map.clear();
+}
 
 bool ObliviousHashInsertionPass::can_instrument_instruction(llvm::Function* F,
                                                             llvm::Instruction* I,
@@ -774,70 +789,50 @@ bool ObliviousHashInsertionPass::can_process_path(llvm::Function* F, const Funct
             return false;
         }
     }
-    if (F_input_dependency_info->isInputDepFunction()) {
-        return true;
-    }
-    // check is an argument is used inside non-deterministic block for input independent functions
     return is_argument_used_in_path(F, path);
 }
 
 bool ObliviousHashInsertionPass::is_argument_used_in_path(llvm::Function* F,  const FunctionOHPaths::OHPath& path)
 {
+
+    dg::LLVMDependenceGraph* F_dg = m_slicer->getDG(F);
+    if (!F_dg) {
+        return false;
+    }
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
-    std::unordered_set<llvm::Value*> arg_aliases;
     auto arg_it = F->arg_begin();
     while (arg_it != F->arg_end()) {
-        for (auto user : arg_it->users()) {
-            auto* user_inst = llvm::dyn_cast<llvm::Instruction>(user);
-            if (!user_inst) {
-                continue;
-            }
-            auto* user_block = user_inst->getParent();
-            if (!FunctionOHPaths::pathContainsBlock(path, user_block)) {
-                continue;
-            }
-            if (F_input_dependency_info->isInputDependentBlock(user_block)) {
-                return false;
-            }
-            if (auto* storeInst = llvm::dyn_cast<llvm::StoreInst>(user_inst)) {
-                if (storeInst->getValueOperand() == &*arg_it) {
-                    arg_aliases.insert(storeInst->getPointerOperand());
-                    ++arg_it;
-                    continue;
-                }
-            }
-            for (auto& use : user_inst->operands()) {
-                if (auto* use_arg = llvm::dyn_cast<llvm::Argument>(use)) {
-                    if (use_arg == &*arg_it) {
-                        continue;
-                    }
-                }
-                if (auto* use_value = llvm::dyn_cast<llvm::Value>(use)) {
-                    const auto& alias = m_AAR->alias(use_value, &*arg_it);
-                    if (alias != llvm::AliasResult::NoAlias) {
-                        arg_aliases.insert(use_value);
-                    }
-                }
-            }
+        std::list<dg::LLVMNode*> dg_nodes;
+        auto arg_node = F_dg->getNode(&*arg_it);
+        if (arg_node == nullptr) {
             ++arg_it;
+            continue;
         }
-    }
-    for (auto& arg_alias : arg_aliases) {
-        for (auto alias_user : arg_alias->users()) {
-            if (auto* inst = llvm::dyn_cast<llvm::Instruction>(alias_user)) {
-                auto* parent = inst->getParent();
-                if (!FunctionOHPaths::pathContainsBlock(path, parent)) {
+        dg_nodes.push_back(arg_node);
+        std::unordered_set<dg::LLVMNode*> processed_nodes;
+        while (!dg_nodes.empty()) {
+            auto node = dg_nodes.back();
+            dg_nodes.pop_back();
+            if (!processed_nodes.insert(node).second) {
+                continue;
+            }
+            //llvm::dbgs() << "dg node: " << *node->getValue() << "\n";
+            auto dep_it = node->data_begin();
+            while (dep_it != node->data_end()) {
+                dg_nodes.push_back(*dep_it);
+                ++dep_it;
+            }
+            if (auto* inst = llvm::dyn_cast<llvm::Instruction>(node->getValue())) {
+                if (!FunctionOHPaths::pathContainsBlock(path, inst->getParent())) {
                     continue;
                 }
-                if (!F_input_dependency_info->isInputDependentBlock(parent)) {
-                    continue;
+                if (F_input_dependency_info->isInputDependentBlock(inst->getParent())
+                    && !F_input_dependency_info->isDataDependent(inst)) {
+                    return false;
                 }
-                if (F_input_dependency_info->isDataDependent(inst)) {
-                    continue;
-                }
-                return false;
             }
         }
+        ++arg_it;
     }
     return true;
 }
@@ -892,6 +887,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
     bool modified = false;
     srand(time(NULL));
     m_M = &M;
+    m_slicer.reset(new Slicer(m_M));
 
     parse_skip_tags();
     setup_guardMe_metadata(M);

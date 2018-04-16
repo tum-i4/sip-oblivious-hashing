@@ -31,6 +31,12 @@ Slicer::Slicer(llvm::Module* M)
     computeEdges();
 }
 
+dg::LLVMDependenceGraph* Slicer::getDG(llvm::Function* F)
+{
+   auto CFs = dg::getConstructedFunctions();
+   return CFs[F];
+}
+
 bool Slicer::slice(llvm::Function* F, const std::string& criteria)
 {
     m_slice.clear();
