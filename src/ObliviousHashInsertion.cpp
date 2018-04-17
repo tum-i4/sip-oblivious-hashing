@@ -75,6 +75,11 @@ public:
 
     void extractFunction();
 
+    llvm::Function* getExtractedFunction()
+    {
+        return m_pathF;
+    }
+
 private:
     llvm::Function* createPathFunction();
     void createPathBlocks();
@@ -792,25 +797,17 @@ bool ObliviousHashInsertionPass::process_function(llvm::Function* F)
     return modified;
 }
 
-void ObliviousHashInsertionPass::insert_calls_for_path_functions(llvm::Module& M)
+void ObliviousHashInsertionPass::insert_calls_for_path_functions()
 {
-    for (auto& F_path_functions : m_path_functions) {
-        llvm::Function* F = F_path_functions.first;
-        auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
-        std::vector<llvm::Value *> arg_values;
-        for (auto& arg : F->args()) {
-            arg_values.push_back(&arg);
-        }
-        llvm::BasicBlock* insertion_block = &F->getEntryBlock();
-        llvm::ArrayRef<llvm::Value *> args(arg_values);
-        for (auto& path_F : F_path_functions.second) {
-            llvm::IRBuilder<> builder(insertion_block);
-            builder.SetInsertPoint(insertion_block, insertion_block->getFirstInsertionPt());
-            auto* call = builder.CreateCall(path_F, args);
-            auto* path_function_md_str = llvm::MDString::get(M.getContext(), "path_function");
-            llvm::MDNode* path_function_md = llvm::MDNode::get(M.getContext(), path_function_md_str);
-            call->setMetadata("path_function", path_function_md);
-        }
+    llvm::Function* mainF = m_M->getFunction("main");
+    if (!mainF) {
+        llvm::dbgs() << "No main function. Can not insert calls to extracted path functions\n";
+        return;
+    }
+    llvm::IRBuilder<> builder(mainF->getContext());
+    for (auto& path_F : m_path_functions) {
+        builder.SetInsertPoint(&*mainF->getEntryBlock().getFirstInsertionPt());
+        builder.CreateCall(path_F, llvm::ArrayRef<llvm::Value*>());
     }
 }
 
@@ -882,6 +879,7 @@ void ObliviousHashInsertionPass::extract_path_functions()
                                                    hashFunc1,
                                                    hashFunc2);
             pathExtractor.extractFunction();
+            m_path_functions.push_back(pathExtractor.getExtractedFunction());
         }
     }
     // after extraction all path assertion functions will be deleted
@@ -1104,7 +1102,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
     }
     extract_path_functions();
 
-    //insert_calls_for_path_functions(M);
+    insert_calls_for_path_functions();
 
     if (!DumpOHStat.empty()) {
         dbgs() << "OH stats is requested, dumping stat file...\n";

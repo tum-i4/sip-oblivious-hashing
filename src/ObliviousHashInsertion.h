@@ -49,7 +49,7 @@ private:
   void setup_hash_values(llvm::Module &M);
   bool skip_function(llvm::Function& F) const;
   bool process_function(llvm::Function* F);
-  void insert_calls_for_path_functions(llvm::Module& M);
+  void insert_calls_for_path_functions();
   bool process_path(llvm::Function* F,
                     const FunctionOHPaths::OHPath& path,
                     unsigned path_num);
@@ -115,7 +115,7 @@ private:
   llvm::GlobalVariable *TempVariable;
   std::vector<unsigned> usedHashIndices;
   std::unordered_set<llvm::BasicBlock*> m_processed_deterministic_blocks;
-  std::unordered_map<llvm::Function*, std::vector<llvm::Function*>> m_path_functions;
+  std::vector<llvm::Function*> m_path_functions;
   // assertion function for paths for each function
   std::unordered_map<llvm::Function*, std::vector<llvm::Function*>> m_path_assertions;
   // path for each assert
