@@ -54,10 +54,6 @@ private:
                     const FunctionOHPaths::OHPath& path,
                     unsigned path_num);
   void extract_path_functions();
-  void extract_path_function(Slicer::Slice slice,
-                             llvm::Function* F,
-                             llvm::Function* path_F,
-                             const FunctionOHPaths::OHPath& path);
   bool can_instrument_instruction(llvm::Function* F,
                                   llvm::Instruction* I,
                                   const SkipFunctionsPred& skipInstructionPred);
@@ -112,9 +108,9 @@ private:
   unsigned guardMetadataKindID;
   unsigned assertCnt;
   std::vector<std::string> skipTags;
-  llvm::Constant *hashFunc1;
-  llvm::Constant *hashFunc2;
-  llvm::Constant *assert;
+  llvm::Function *hashFunc1;
+  llvm::Function *hashFunc2;
+  llvm::Function *assert;
   std::vector<llvm::GlobalVariable *> hashPtrs;
   llvm::GlobalVariable *TempVariable;
   std::vector<unsigned> usedHashIndices;

@@ -26,6 +26,7 @@ Slicer::Slicer(llvm::Module* M)
     , m_module(M)
     , m_PTA(new dg::LLVMPointerAnalysis(m_module))
     , m_RD(new dg::analysis::rd::LLVMReachingDefinitions(m_module, m_PTA.get()))
+    , m_dg(new dg::LLVMDependenceGraph())
 {
     buildDG();
     computeEdges();
@@ -42,7 +43,7 @@ bool Slicer::slice(llvm::Function* F, const std::string& criteria)
     m_slice.clear();
     std::set<dg::LLVMNode *> callsites;
 
-    bool ret = m_dg.getCallSites(criteria.c_str(), &callsites);
+    bool ret = m_dg->getCallSites(criteria.c_str(), &callsites);
     if (!ret) {
         llvm::errs() << "Did not find slicing criterion: "
                      << criteria << "\n";
@@ -65,16 +66,16 @@ void Slicer::computeEdges()
 {
     m_RD->run();
 
-    dg::LLVMDefUseAnalysis DUA(&m_dg, m_RD.get(),
+    dg::LLVMDefUseAnalysis DUA(m_dg.get(), m_RD.get(),
                                m_PTA.get());
     DUA.run(); // add def-use edges according that
-    m_dg.computeControlDependencies(dg::CD_ALG::CLASSIC);
+    m_dg->computeControlDependencies(dg::CD_ALG::CLASSIC);
 }
 
 void Slicer::buildDG()
 {
     m_PTA->run<dg::analysis::pta::PointsToFlowInsensitive>();
-    m_dg.build(m_module, m_PTA.get());
+    m_dg->build(m_module, m_PTA.get());
 }
 
 void Slicer::computeSlice(llvm::Function* F)

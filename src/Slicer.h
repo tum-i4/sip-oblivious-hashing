@@ -26,12 +26,12 @@ public:
 
     const dg::LLVMDependenceGraph& getDG() const
     {
-        return m_dg;
+        return *m_dg;
     }
 
     dg::LLVMDependenceGraph& getDG()
     {
-        return m_dg;
+        return *m_dg;
     }
 
     dg::LLVMDependenceGraph* getDG(llvm::Function* F);
@@ -59,7 +59,7 @@ private:
     llvm::Module *m_module;
     std::unique_ptr<dg::LLVMPointerAnalysis> m_PTA;
     std::unique_ptr<dg::analysis::rd::LLVMReachingDefinitions> m_RD;
-    dg::LLVMDependenceGraph m_dg;
+    std::unique_ptr<dg::LLVMDependenceGraph> m_dg;
     dg::LLVMSlicer m_slicer;
     Slice m_slice;
 }; // class Slicer
