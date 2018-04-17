@@ -348,6 +348,10 @@ static llvm::cl::opt<std::string> SkipTaggedInstructions(
                            "(metadata) to be skipped by the OH pass"),
     llvm::cl::value_desc("skip"));
 
+static cl::opt<bool>
+    shortRangeOH("short-range-oh", cl::Hidden,
+               cl::desc("Apply short range hashing"));
+
 void ObliviousHashInsertionPass::getAnalysisUsage(llvm::AnalysisUsage &AU) const
 {
     AU.setPreservesAll();
@@ -781,9 +785,18 @@ bool ObliviousHashInsertionPass::skip_function(llvm::Function& F) const
 
 bool ObliviousHashInsertionPass::process_function(llvm::Function* F)
 {
-    bool modified = false;
 
     llvm::dbgs() << " Processing function:" << F->getName() << "\n";
+    if (shortRangeOH) {
+        llvm::dbgs() << "Short range hashing enabled.\n";
+        return process_function_with_short_range_oh_enabled(F);
+    }
+    return process_function_with_global_oh(F);
+}
+
+bool ObliviousHashInsertionPass::process_function_with_short_range_oh_enabled(llvm::Function* F)
+{
+    bool modified = false;
     llvm::DominatorTree& domTree = getAnalysis<llvm::DominatorTreeWrapperPass>(*F).getDomTree();
     FunctionOHPaths paths(F, &domTree);
     paths.constructOHPaths();
@@ -794,6 +807,25 @@ bool ObliviousHashInsertionPass::process_function(llvm::Function* F)
         modified |= process_path(F, paths[i], i);
     }
 
+    return modified;
+}
+
+bool ObliviousHashInsertionPass::process_function_with_global_oh(llvm::Function* F)
+{
+    bool modified = false;
+    auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
+    if (F_input_dependency_info->isInputDepFunction()) {
+        llvm::dbgs() << "Skip function " << F->getName() << " because input dependent\n";
+        return modified;
+    }
+    llvm::LoopInfo &LI = getAnalysis<llvm::LoopInfoWrapperPass>(*F).getLoopInfo();
+    for (auto& B : *F) {
+        bool can_insert_assertions = can_insert_assertion_at_location(F, &B, LI);
+        if (F_input_dependency_info->isInputDependentBlock(&B)) {
+            continue;
+        }
+        modified |= process_block(F, &B, can_insert_assertions, [] (llvm::Instruction* instr) {return false;});
+    }
     return modified;
 }
 
@@ -1100,9 +1132,10 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
         m_AAR = AARGetter(&F);
         modified |= process_function(&F);
     }
-    extract_path_functions();
-
-    insert_calls_for_path_functions();
+    if (shortRangeOH) {
+        extract_path_functions();
+        insert_calls_for_path_functions();
+    }
 
     if (!DumpOHStat.empty()) {
         dbgs() << "OH stats is requested, dumping stat file...\n";
