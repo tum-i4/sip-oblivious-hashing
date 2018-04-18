@@ -64,6 +64,16 @@ void OHStats::addNumberOfShortRangeProtectedGuardArguments(int value)
 	numberOfShortRangeProtectedGuardArguments += value;
 }
 
+void OHStats::addNumberOfProtectedBlocks(int value)
+{
+    numberOfProtectedBlocks += value;
+}
+
+void OHStats::addNumberOfSensitiveBlocks(int value)
+{
+    numberOfSensitiveBlocks += value;
+}
+
 void OHStats::dumpJson(std::string filePath){
 	json j;
 	j["numberOfImplicitlyProtectedInstructions"] = numberOfImplicitlyProtectedInstructions;
@@ -82,6 +92,9 @@ void OHStats::dumpJson(std::string filePath){
 	j["numberOfShortRangeAssertCalls"] = numberOfShortRangeAssertCalls;
 	j["numberOfShortRangeProtectedGuardInstructions"] = numberOfShortRangeProtectedGuardInstructions;
 	j["numberOfShortRangeProtectedGuardArguments"] = numberOfShortRangeProtectedGuardArguments;
+
+	j["numberOfProtectedBlocks"] = numberOfProtectedBlocks;
+	j["numberOfSensitiveBlocks"] = numberOfSensitiveBlocks;
 
 	std::cout << j.dump(4) << std::endl;
 	std::ofstream o(filePath);

@@ -27,6 +27,9 @@ private:
     int numberOfShortRangeProtectedGuardInstructions = 0;
     int numberOfShortRangeProtectedGuardArguments = 0;
 
+    int numberOfProtectedBlocks = 0;
+    int numberOfSensitiveBlocks = 0;
+
 public:
     void addNumberOfImplicitlyProtectedInstructions(int);
     void addNumberOfProtectedInstructions(int);
@@ -44,6 +47,9 @@ public:
     void addNumberOfShortRangeAssertCalls(int);
     void addNumberOfShortRangeProtectedGuardInstructions(int);
     void addNumberOfShortRangeProtectedGuardArguments(int);
+
+    void addNumberOfProtectedBlocks(int);
+    void addNumberOfSensitiveBlocks(int);
 
     void dumpJson(std::string fileName);
 };

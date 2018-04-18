@@ -810,6 +810,7 @@ bool ObliviousHashInsertionPass::process_function(llvm::Function* F)
 {
 
     llvm::dbgs() << " Processing function:" << F->getName() << "\n";
+    stats.addNumberOfSensitiveBlocks(F->getBasicBlockList().size());
     if (shortRangeOH) {
         llvm::dbgs() << "Short range hashing enabled.\n";
         return process_function_with_short_range_oh_enabled(F);
@@ -990,6 +991,9 @@ bool ObliviousHashInsertionPass::process_path_block(llvm::Function* F, llvm::Bas
         m_path_assertions[F].push_back(path_assert);
         insertAssert(I, hash_value, true, path_assert);
     }
+    if (modified) {
+        stats.addNumberOfProtectedBlocks(1);
+    }
     return modified;
 }
 
@@ -1023,6 +1027,9 @@ bool ObliviousHashInsertionPass::process_block(llvm::Function* F, llvm::BasicBlo
         }
         insertAssert(I, hash_to_assert, false, assert);
         m_hashUpdated = false;
+    }
+    if (modified) {
+        stats.addNumberOfProtectedBlocks(1);
     }
     return modified;
 }
