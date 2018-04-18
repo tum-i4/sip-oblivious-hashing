@@ -169,6 +169,9 @@ void FunctionExtractionHelper::extractSlice(const Slicer::Slice& slice)
         if (!FunctionOHPaths::pathContainsBlock(m_path, I->getParent())) {
             continue;
         }
+        if (llvm::dyn_cast<llvm::ReturnInst>(I)) {
+            continue;
+        }
         if (auto* callInst = llvm::dyn_cast<llvm::CallInst>(I)) {
             if (isGlobalHashInstr(callInst)) {
                 continue;
@@ -352,6 +355,7 @@ llvm::Function* get_assert_function_with_name(llvm::Module* M, const std::string
 }
 
 char ObliviousHashInsertionPass::ID = 0;
+const std::string ObliviousHashInsertionPass::oh_path_functions_callee = "oh_path_functions";
 const std::string GUARD_META_DATA = "guard";
 
 static cl::opt<std::string>
@@ -850,16 +854,29 @@ bool ObliviousHashInsertionPass::process_function_with_global_oh(llvm::Function*
 
 void ObliviousHashInsertionPass::insert_calls_for_path_functions()
 {
+    llvm::FunctionType *function_type = llvm::FunctionType::get(llvm::Type::getVoidTy(m_M->getContext()),
+                                                                llvm::ArrayRef<llvm::Type*>(), false);
+    auto* path_functions_callee = llvm::dyn_cast<llvm::Function>(m_M->getOrInsertFunction(oh_path_functions_callee,
+                                                                                          function_type));
+    llvm::LLVMContext& Ctx = path_functions_callee->getContext();
+    llvm::BasicBlock* entry_block = llvm::BasicBlock::Create(Ctx,
+                                                             "entry",
+                                                             path_functions_callee);
+    llvm::IRBuilder<> builder(Ctx);
+    for (auto& path_F : m_path_functions) {
+        builder.SetInsertPoint(entry_block);
+        builder.CreateCall(path_F, llvm::ArrayRef<llvm::Value*>());
+    }
+    llvm::ReturnInst::Create(Ctx, entry_block);
+
     llvm::Function* mainF = m_M->getFunction("main");
     if (!mainF) {
         llvm::dbgs() << "No main function. Can not insert calls to extracted path functions\n";
         return;
     }
-    llvm::IRBuilder<> builder(mainF->getContext());
-    for (auto& path_F : m_path_functions) {
-        builder.SetInsertPoint(&*mainF->getEntryBlock().getFirstInsertionPt());
-        builder.CreateCall(path_F, llvm::ArrayRef<llvm::Value*>());
-    }
+    llvm::IRBuilder<> main_builder(mainF->getContext());
+    main_builder.SetInsertPoint(&*mainF->getEntryBlock().getFirstInsertionPt());
+    main_builder.CreateCall(path_functions_callee, llvm::ArrayRef<llvm::Value*>());
 }
 
 bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
@@ -1064,7 +1081,13 @@ bool ObliviousHashInsertionPass::is_argument_used_in_path(llvm::Function* F,  co
                 if (!FunctionOHPaths::pathContainsBlock(path, inst->getParent())) {
                     continue;
                 }
-                if (F_input_dependency_info->isInputDependentBlock(inst->getParent())
+                if (auto* storeInst = llvm::dyn_cast<llvm::StoreInst>(inst)) {
+                    if (llvm::dyn_cast<llvm::Argument>(storeInst->getValueOperand())) {
+                        continue;
+                    }
+                }
+                if ((F_input_dependency_info->isInputDepFunction() ||
+                            F_input_dependency_info->isInputDependentBlock(inst->getParent()))
                     && !F_input_dependency_info->isDataDependent(inst)) {
                     return false;
                 }

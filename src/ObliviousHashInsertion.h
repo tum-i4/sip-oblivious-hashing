@@ -94,6 +94,9 @@ private:
   bool hasSkipTag(llvm::Instruction& I);
   bool isInstAGuard(llvm::Instruction &I);
 
+public:
+    static const std::string oh_path_functions_callee;
+
 private:
   llvm::Module* m_M;
   OHStats stats;
