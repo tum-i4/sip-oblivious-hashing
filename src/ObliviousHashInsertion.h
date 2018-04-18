@@ -43,10 +43,10 @@ public:
 
 private:
   using SkipFunctionsPred = std::function<bool (llvm::Instruction* instr)>;
-  void setup_guardMe_metadata(llvm::Module& M);
+  void setup_guardMe_metadata();
   void setup_used_analysis_results();
-  void setup_functions(llvm::Module &M);
-  void setup_hash_values(llvm::Module &M);
+  void setup_functions();
+  void setup_hash_values();
   bool skip_function(llvm::Function& F) const;
   bool process_function(llvm::Function* F);
   bool process_function_with_short_range_oh_enabled(llvm::Function* F);

@@ -64,10 +64,10 @@ bool Slicer::slice(llvm::Function* F, const std::string& criteria)
 
 void Slicer::computeEdges()
 {
-    m_RD->run();
+    m_RD->run<dg::analysis::rd::ReachingDefinitionsAnalysis>();
 
     dg::LLVMDefUseAnalysis DUA(m_dg.get(), m_RD.get(),
-                               m_PTA.get());
+                               m_PTA.get(), false);
     DUA.run(); // add def-use edges according that
     m_dg->computeControlDependencies(dg::CD_ALG::CLASSIC);
 }

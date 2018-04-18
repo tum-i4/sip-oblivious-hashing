@@ -84,6 +84,7 @@ private:
     llvm::Function* createPathFunction();
     void createPathBlocks();
     void extractSlice(const Slicer::Slice& slice);
+    void replaceUniqueAssertCall(llvm::CallInst* callInst);
     void removeArgumentReachableInstructions();
     void removeArgumentReachableInstruction(llvm::Instruction* inst);
     void adjustBlockTerminators();
@@ -174,7 +175,7 @@ void FunctionExtractionHelper::extractSlice(const Slicer::Slice& slice)
             }
             llvm::Function* calledF = callInst->getCalledFunction();
             if (calledF == m_assertF) {
-                callInst->setCalledFunction(m_assert);
+                replaceUniqueAssertCall(callInst);
             }
         }
         auto* block = llvm::dyn_cast<llvm::BasicBlock>(m_valueMap[I->getParent()]);
@@ -185,6 +186,24 @@ void FunctionExtractionHelper::extractSlice(const Slicer::Slice& slice)
         block->getInstList().push_back(cloned_I);
         m_valueMap.insert(std::make_pair(I, llvm::WeakVH(cloned_I)));
     }
+}
+
+void FunctionExtractionHelper::replaceUniqueAssertCall(llvm::CallInst* callInst)
+{
+    // assertion call looks like following
+    // %0 = load i64, i64* @global
+    // call void @assert(i64 %0, i64 placeholder)
+    llvm::LoadInst* global_load = llvm::dyn_cast<llvm::LoadInst>(callInst->getArgOperand(0));
+    callInst->setCalledFunction(m_assert);
+    callInst->setArgOperand(0, global_load->getPointerOperand());
+    auto pos = m_valueMap.find(global_load);
+    if (pos != m_valueMap.end()) {
+        if (auto* inst = llvm::dyn_cast<llvm::Instruction>(pos->second)) {
+            inst->eraseFromParent();
+            m_valueMap.erase(pos);
+        }
+    }
+    global_load->eraseFromParent();
 }
 
 void FunctionExtractionHelper::removeArgumentReachableInstructions()
@@ -700,10 +719,10 @@ void ObliviousHashInsertionPass::insertAssert(llvm::IRBuilder<> &builder,
         auto loaded_local_hash = builder.CreateLoad(hash_value);
         builder.CreateStore(loaded_local_hash, TempVariable);
         hash_load = builder.CreateLoad(TempVariable);
+        values = {hash_load, const_int};
     } else {
-        hash_load = builder.CreateLoad(hash_value);
+        values = {hash_value, const_int};
     }
-    values = {hash_load, const_int};
     ArrayRef<Value *> args(values);
     assertCnt++;
     // Stats add the assert call
@@ -713,9 +732,9 @@ void ObliviousHashInsertionPass::insertAssert(llvm::IRBuilder<> &builder,
     builder.CreateCall(assert_F, args);
 }
 
-void ObliviousHashInsertionPass::setup_guardMe_metadata(llvm::Module& M)
+void ObliviousHashInsertionPass::setup_guardMe_metadata()
 {
-    guardMetadataKindID = M.getMDKindID(GUARD_META_DATA);
+    guardMetadataKindID = m_M->getMDKindID(GUARD_META_DATA);
     if (guardMetadataKindID > 0) {
         llvm::dbgs() << "'guard' metadata was found in the input bitcode\n";
     } else {
@@ -735,33 +754,33 @@ void ObliviousHashInsertionPass::setup_used_analysis_results()
     m_function_callsite_data = &getAnalysis<FunctionCallSiteInformationPass>().getAnalysisResult();
 }
 
-void ObliviousHashInsertionPass::setup_functions(llvm::Module &M)
+void ObliviousHashInsertionPass::setup_functions()
 {
     // Get the function to call from our runtime library.
-    llvm::LLVMContext &Ctx = M.getContext();
+    llvm::LLVMContext &Ctx = m_M->getContext();
     llvm::ArrayRef<llvm::Type *> params {llvm::Type::getInt64PtrTy(Ctx),
                                          llvm::Type::getInt64Ty(Ctx)};
     llvm::FunctionType *function_type = llvm::FunctionType::get(llvm::Type::getVoidTy(Ctx), params, false);
-    hashFunc1 = llvm::dyn_cast<llvm::Function>(M.getOrInsertFunction("hash1", function_type));
-    hashFunc2 = llvm::dyn_cast<llvm::Function>(M.getOrInsertFunction("hash2", function_type));
-    assert = get_assert_function_with_name(&M, "assert");
+    hashFunc1 = llvm::dyn_cast<llvm::Function>(m_M->getOrInsertFunction("hash1", function_type));
+    hashFunc2 = llvm::dyn_cast<llvm::Function>(m_M->getOrInsertFunction("hash2", function_type));
+    assert = llvm::dyn_cast<llvm::Function>(m_M->getOrInsertFunction("assert", function_type));
 }
 
-void ObliviousHashInsertionPass::setup_hash_values(llvm::Module &M)
+void ObliviousHashInsertionPass::setup_hash_values()
 {
     // Insert Global hash variables
     hashPtrs.reserve(num_hash);
     stats.setNumberOfHashVariables(num_hash);
 
-    llvm::LLVMContext &Ctx = M.getContext();
+    llvm::LLVMContext &Ctx = m_M->getContext();
     for (int i = 0; i < num_hash; i++) {
         hashPtrs.push_back(new llvm::GlobalVariable(
-                    M, llvm::Type::getInt64Ty(Ctx), false,
+                    *m_M, llvm::Type::getInt64Ty(Ctx), false,
                     llvm::GlobalValue::ExternalLinkage,
                     llvm::ConstantInt::get(llvm::Type::getInt64Ty(Ctx), 0)));
     }
     TempVariable = new llvm::GlobalVariable(
-		         M, llvm::Type::getInt64Ty(Ctx), false,
+		         *m_M, llvm::Type::getInt64Ty(Ctx), false,
 		         llvm::GlobalValue::ExternalLinkage,
 		         llvm::ConstantInt::get(llvm::Type::getInt64Ty(Ctx), 0));
 }
@@ -1109,10 +1128,10 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
     m_slicer.reset(new Slicer(m_M));
 
     parse_skip_tags();
-    setup_guardMe_metadata(M);
+    setup_guardMe_metadata();
     setup_used_analysis_results();
-    setup_functions(M);
-    setup_hash_values(M);
+    setup_functions();
+    setup_hash_values();
 
     llvm::Optional<llvm::BasicAAResult> BAR;
     llvm::Optional<llvm::AAResults> AAR;
