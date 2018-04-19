@@ -95,6 +95,8 @@ void OHStats::dumpJson(std::string filePath){
 
 	j["numberOfProtectedBlocks"] = numberOfProtectedBlocks;
 	j["numberOfSensitiveBlocks"] = numberOfSensitiveBlocks;
+    double block_coverage = (numberOfProtectedBlocks * 100.0) /numberOfSensitiveBlocks;
+	j["basicBlockCoverage"] = block_coverage;
 
 	std::cout << j.dump(4) << std::endl;
 	std::ofstream o(filePath);
