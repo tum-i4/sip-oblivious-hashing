@@ -889,9 +889,9 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
     for (const auto& B : path) {
         llvm::dbgs() << B->getName() << "  ";
     }
-    if (!can_process_path(F, path)) {
-        llvm::dbgs() << "\nCan not process path\n";
-        return modified;
+    bool can_process_nondet_path = can_process_path(F, path);
+    if (!can_process_nondet_path) {
+        llvm::dbgs() << "\nCan not process non-deterministic part of the path\n";
     }
     llvm::dbgs() << "\n";
     llvm::BasicBlock* entry_block = path.front();
@@ -916,7 +916,7 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
             if (m_processed_deterministic_blocks.insert(B).second) {
                 modified |= process_block(F, B, can_insert_assertions, skip_instruction_pred);
             }
-        } else {
+        } else if (can_process_nondet_path) {
             can_insert_assertions &= (B == path.back());
             modified |= process_path_block(F, B, local_hash, can_insert_assertions,
                                            skip_instruction_pred, local_hash_updated,
@@ -924,12 +924,14 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
             has_inputdep_block = true;
         }
     }
-    if (!modified || !has_inputdep_block) {
+    if (!can_process_nondet_path || !modified || !has_inputdep_block) {
         local_store->eraseFromParent();
         local_hash->eraseFromParent();
     }
-    if (m_path_assertions.find(F) != m_path_assertions.end() && !m_path_assertions[F].empty()) {
-        m_function_path.insert(std::make_pair(m_path_assertions[F].back(), path));
+    if (can_process_nondet_path) {
+        if (m_path_assertions.find(F) != m_path_assertions.end() && !m_path_assertions[F].empty()) {
+            m_function_path.insert(std::make_pair(m_path_assertions[F].back(), path));
+        }
     }
     return modified;
 }
