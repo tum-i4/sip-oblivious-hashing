@@ -69,6 +69,11 @@ void OHStats::addNumberOfProtectedBlocks(int value)
     numberOfProtectedBlocks += value;
 }
 
+void OHStats::addNumberOfShortRangeProtectedBlocks(int value)
+{
+    numberOfShortRangeProtectedBlocks += value;
+}
+
 void OHStats::addNumberOfSensitiveBlocks(int value)
 {
     numberOfSensitiveBlocks += value;
@@ -94,8 +99,9 @@ void OHStats::dumpJson(std::string filePath){
 	j["numberOfShortRangeProtectedGuardArguments"] = numberOfShortRangeProtectedGuardArguments;
 
 	j["numberOfProtectedBlocks"] = numberOfProtectedBlocks;
+	j["numberOfShortRangeProtectedBlocks"] = numberOfShortRangeProtectedBlocks;
 	j["numberOfSensitiveBlocks"] = numberOfSensitiveBlocks;
-    double block_coverage = (numberOfProtectedBlocks * 100.0) /numberOfSensitiveBlocks;
+    double block_coverage = ((numberOfProtectedBlocks + numberOfShortRangeProtectedBlocks) * 100.0) /numberOfSensitiveBlocks;
 	j["basicBlockCoverage"] = block_coverage;
 
 	std::cout << j.dump(4) << std::endl;

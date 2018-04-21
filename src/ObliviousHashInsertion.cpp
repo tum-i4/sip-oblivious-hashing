@@ -994,7 +994,7 @@ bool ObliviousHashInsertionPass::process_path_block(llvm::Function* F, llvm::Bas
         insertAssert(I, hash_value, true, path_assert);
     }
     if (modified) {
-        stats.addNumberOfProtectedBlocks(1);
+        stats.addNumberOfShortRangeProtectedBlocks(1);
     }
     return modified;
 }
