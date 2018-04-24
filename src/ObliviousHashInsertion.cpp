@@ -548,6 +548,9 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I,
         isCallGuard = isInstAGuard(I);
     } else if (auto* getElemPtr = llvm::dyn_cast<llvm::GetElementPtrInst>(&I)) {
         hashInserted = instrumentGetElementPtrInst(getElemPtr, hash_to_update);
+    } else {
+        stats.addNumberOfNonHashableInstructions(1);
+        llvm::dbgs() << "Non hashable instruction " << I << "\n"; 
     }
 
     if (hashInserted) {
@@ -800,7 +803,7 @@ bool ObliviousHashInsertionPass::skip_function(llvm::Function& F) const
     }
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(&F);
     if (!F_input_dependency_info) {
-        llvm::dbgs() << "No input dep info for function " << F.getName() << ". Skip\n";
+        llvm::dbgs() << "Skipping function. No input dep info " << F.getName() << "\n";
         return true;
     }
     return false;
@@ -827,6 +830,7 @@ bool ObliviousHashInsertionPass::process_function_with_short_range_oh_enabled(ll
 
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
     llvm::LoopInfo &LI = getAnalysis<llvm::LoopInfoWrapperPass>(*F).getLoopInfo();
+    stats.addNumberOfSensitivePaths(paths.size());
     for (unsigned i = 0; i < paths.size(); ++i) {
         modified |= process_path(F, paths[i], i);
     }
@@ -839,7 +843,7 @@ bool ObliviousHashInsertionPass::process_function_with_global_oh(llvm::Function*
     bool modified = false;
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
     if (F_input_dependency_info->isInputDepFunction()) {
-        llvm::dbgs() << "Skip function " << F->getName() << " because input dependent\n";
+        llvm::dbgs() << "Skip input dependent function " << F->getName() << "\n";
         return modified;
     }
     llvm::LoopInfo &LI = getAnalysis<llvm::LoopInfoWrapperPass>(*F).getLoopInfo();
@@ -889,11 +893,11 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
     for (const auto& B : path) {
         llvm::dbgs() << B->getName() << "  ";
     }
+    llvm::dbgs() << "\n";
     bool can_process_nondet_path = can_process_path(F, path);
     if (!can_process_nondet_path) {
-        llvm::dbgs() << "\nCan not process non-deterministic part of the path\n";
+        llvm::dbgs() << "Can not process non-deterministic part of the path\n";
     }
-    llvm::dbgs() << "\n";
     llvm::BasicBlock* entry_block = path.front();
     llvm::LLVMContext &Ctx = entry_block->getContext();
     auto local_hash = new llvm::AllocaInst(llvm::Type::getInt64Ty(Ctx), 0,8, "local_hash");
@@ -911,24 +915,25 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
     bool has_inputdep_block = false;
     bool local_hash_updated = false;
     for (auto& B : path) {
-        bool can_insert_assertions = can_insert_assertion_at_location(F, B, LI);
         if (!F_input_dependency_info->isInputDependentBlock(B) && !F_input_dependency_info->isInputDepFunction()) {
+            bool can_insert_assertions = can_insert_assertion_at_location(F, B, LI);
             if (m_processed_deterministic_blocks.insert(B).second) {
                 modified |= process_block(F, B, can_insert_assertions, skip_instruction_pred);
             }
         } else if (can_process_nondet_path) {
-            can_insert_assertions &= (B == path.back());
-            modified |= process_path_block(F, B, local_hash, can_insert_assertions,
+            modified |= process_path_block(F, B, local_hash, (B == path.back()),
                                            skip_instruction_pred, local_hash_updated,
                                            path_num);
             has_inputdep_block = true;
         }
     }
     if (!can_process_nondet_path || !modified || !has_inputdep_block) {
+        llvm::dbgs() << "No oh has been applied in the path\n";
         local_store->eraseFromParent();
         local_hash->eraseFromParent();
     }
-    if (can_process_nondet_path) {
+    if (can_process_nondet_path && modified) {
+        stats.addNumberOfProtectedPaths(1);
         if (m_path_assertions.find(F) != m_path_assertions.end() && !m_path_assertions[F].empty()) {
             m_function_path.insert(std::make_pair(m_path_assertions[F].back(), path));
         }
@@ -968,6 +973,14 @@ bool ObliviousHashInsertionPass::can_instrument_instruction(llvm::Function* F,
     if (hasSkipTag(*I)) {
         return false;
     }
+    // TODO: make this change after discussing
+    //if (!F_input_dependency_info->isInputDependent(I)) {
+    //    if (!F_input_dependency_info->isInputIndependent(I)) {
+    //        return false;
+    //    }
+    //    return true;
+    //}
+    //return !F_input_dependency_info->isDataDependent(I);
     return !F_input_dependency_info->isInputDependent(I) || !F_input_dependency_info->isDataDependent(I);
 }
 
@@ -1044,10 +1057,10 @@ bool ObliviousHashInsertionPass::can_process_path(llvm::Function* F, const Funct
     llvm::BasicBlock* assert_block = path.back();
     // if function is input dependent and assert block is inside a loop
     if (F_input_dependency_info->isInputDepFunction() && LI.getLoopFor(assert_block)) {
+        llvm::dbgs() << "The last block of a path is in a loop. Can not insert assertion\n";
         return false;
     }
     // if outer loop of the path is input dependent and assert block is inside the loop
-    llvm::Loop* path_loop = nullptr;
     for (auto& B : path) {
         if (LI.getLoopFor(B) && F_input_dependency_info->isInputDependentBlock(B)) {
             return false;
@@ -1098,6 +1111,7 @@ bool ObliviousHashInsertionPass::is_argument_used_in_path(llvm::Function* F,  co
                 if ((F_input_dependency_info->isInputDepFunction() ||
                             F_input_dependency_info->isInputDependentBlock(inst->getParent()))
                     && !F_input_dependency_info->isDataDependent(inst)) {
+                    llvm::dbgs() << "Data independent argument " << *arg_it << " is used in the path.\n";
                     return false;
                 }
             }
@@ -1179,9 +1193,13 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
         if (skip_function(F)) {
             continue;
         }
+        stats.addNumberOfSensitiveFunctions(1);
         ++countProcessedFuncs;
         m_AAR = AARGetter(&F);
-        modified |= process_function(&F);
+        if (process_function(&F)) {
+            stats.addNumberOfProtectedFunctions(1);
+            modified = true;
+        }
     }
     if (shortRangeOH) {
         extract_path_functions();

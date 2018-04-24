@@ -79,6 +79,31 @@ void OHStats::addNumberOfSensitiveBlocks(int value)
     numberOfSensitiveBlocks += value;
 }
 
+void OHStats::addNumberOfSensitiveFunctions(int value)
+{
+    numberOfSensitiveFunctions += value;
+}
+
+void OHStats::addNumberOfProtectedFunctions(int value)
+{
+    numberOfProtectedFunctions += value;
+}
+
+void OHStats::addNumberOfSensitivePaths(int value)
+{
+    numberOfSensitivePaths += value;
+}
+
+void OHStats::addNumberOfProtectedPaths(int value)
+{
+    numberOfProtectedPaths += value;
+}
+
+void OHStats::addNumberOfNonHashableInstructions(int value)
+{
+    numberOfNonHashableInstructions += value;
+}
+
 void OHStats::dumpJson(std::string filePath){
 	json j;
 	j["numberOfImplicitlyProtectedInstructions"] = numberOfImplicitlyProtectedInstructions;
@@ -103,6 +128,16 @@ void OHStats::dumpJson(std::string filePath){
 	j["numberOfSensitiveBlocks"] = numberOfSensitiveBlocks;
     double block_coverage = ((numberOfProtectedBlocks + numberOfShortRangeProtectedBlocks) * 100.0) /numberOfSensitiveBlocks;
 	j["basicBlockCoverage"] = block_coverage;
+
+    j["numberOfSensitiveFunctions"] = numberOfSensitiveFunctions;
+    j["numberOfProtectedFunctions"] = numberOfProtectedFunctions;
+    double function_coverage = numberOfProtectedFunctions * 100.0 / numberOfSensitiveFunctions;
+    j["functionCoverage"] = function_coverage;
+    j["numberOfSensitivePaths"] = numberOfSensitivePaths;
+    j["numberOfProtectedPaths"] = numberOfProtectedPaths;
+    double path_coverage = numberOfProtectedPaths * 100.0 / numberOfSensitivePaths;
+    j["pathCoverage"] = path_coverage;
+    j["numberOfNonHashableInstructions"] = numberOfNonHashableInstructions;
 
 	std::cout << j.dump(4) << std::endl;
 	std::ofstream o(filePath);
