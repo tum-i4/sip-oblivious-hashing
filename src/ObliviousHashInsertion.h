@@ -42,6 +42,7 @@ public:
   virtual void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
 
 private:
+  using BasicBlocksSet = std::unordered_set<llvm::BasicBlock*>;
   using SkipFunctionsPred = std::function<bool (llvm::Instruction* instr)>;
   void setup_guardMe_metadata();
   void setup_used_analysis_results();
@@ -67,8 +68,10 @@ private:
   bool process_block(llvm::Function* F, llvm::BasicBlock* B,
                      bool insert_assert,
                      const SkipFunctionsPred& skipInstructionPred);
-  bool can_process_path(llvm::Function* F, const FunctionOHPaths::OHPath& path);
-  bool is_argument_used_in_path(llvm::Function* F,  const FunctionOHPaths::OHPath& path);
+  bool can_insert_short_range_assertion(llvm::Function* F,
+                                        const FunctionOHPaths::OHPath& path);
+  const BasicBlocksSet& get_blocks_using_arguments(llvm::Function* F);
+  void collect_blocks_using_arguments(llvm::Function* F);
   bool can_insert_assertion_at_location(llvm::Function* F,
                                         llvm::BasicBlock* B,
                                         llvm::LoopInfo& LI);
@@ -119,11 +122,12 @@ private:
   std::vector<llvm::GlobalVariable *> hashPtrs;
   llvm::GlobalVariable *TempVariable;
   std::vector<unsigned> usedHashIndices;
-  std::unordered_set<llvm::BasicBlock*> m_processed_deterministic_blocks;
+  BasicBlocksSet m_processed_deterministic_blocks;
   std::vector<llvm::Function*> m_path_functions;
   // assertion function for paths for each function
   std::unordered_map<llvm::Function*, std::vector<llvm::Function*>> m_path_assertions;
   // path for each assert
   std::unordered_map<llvm::Function*, FunctionOHPaths::OHPath> m_function_path;
+  std::unordered_map<llvm::Function*, BasicBlocksSet> m_function_blocks_using_arguments;
 };
 }

@@ -104,6 +104,16 @@ void OHStats::addNumberOfNonHashableInstructions(int value)
     numberOfNonHashableInstructions += value;
 }
 
+void OHStats::addNumberOfSkippedLoopBlocks(int value)
+{
+    numberOfSkippedLoopBlocks += value;
+}
+
+void OHStats::addNumberOfSkippedArgUsingBlocks(int value)
+{
+    numberOfSkippedArgUsingBlocks += value;
+}
+
 void OHStats::dumpJson(std::string filePath){
 	json j;
 	j["numberOfImplicitlyProtectedInstructions"] = numberOfImplicitlyProtectedInstructions;
@@ -138,6 +148,9 @@ void OHStats::dumpJson(std::string filePath){
     double path_coverage = numberOfProtectedPaths * 100.0 / numberOfSensitivePaths;
     j["pathCoverage"] = path_coverage;
     j["numberOfNonHashableInstructions"] = numberOfNonHashableInstructions;
+
+    j["numberOfSkippedLoopBlocks"] = numberOfSkippedLoopBlocks;
+    j["numberOfSkippedArgUsingBlocks"] = numberOfSkippedArgUsingBlocks;
 
 	std::cout << j.dump(4) << std::endl;
 	std::ofstream o(filePath);

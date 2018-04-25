@@ -37,6 +37,9 @@ private:
     int numberOfProtectedFunctions = 0;
     int numberOfNonHashableInstructions = 0;
 
+    int numberOfSkippedLoopBlocks = 0;
+    int numberOfSkippedArgUsingBlocks = 0;
+
 public:
     void addNumberOfImplicitlyProtectedInstructions(int);
     void addNumberOfProtectedInstructions(int);
@@ -64,6 +67,9 @@ public:
     void addNumberOfSensitivePaths(int);
     void addNumberOfProtectedPaths(int);
     void addNumberOfNonHashableInstructions(int);
+
+    void addNumberOfSkippedLoopBlocks(int);
+    void addNumberOfSkippedArgUsingBlocks(int);
 
     void dumpJson(std::string fileName);
 };
