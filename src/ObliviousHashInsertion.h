@@ -43,6 +43,7 @@ public:
 
 private:
   using BasicBlocksSet = std::unordered_set<llvm::BasicBlock*>;
+  using InstructionSet = std::unordered_set<llvm::Instruction*>;
   using SkipFunctionsPred = std::function<bool (llvm::Instruction* instr)>;
   void setup_guardMe_metadata();
   void setup_used_analysis_results();
@@ -70,8 +71,8 @@ private:
                      const SkipFunctionsPred& skipInstructionPred);
   bool can_insert_short_range_assertion(llvm::Function* F,
                                         const FunctionOHPaths::OHPath& path);
-  const BasicBlocksSet& get_blocks_using_arguments(llvm::Function* F);
-  void collect_blocks_using_arguments(llvm::Function* F);
+  const InstructionSet& get_argument_reachable_instructions(llvm::Function* F);
+  void collect_argument_reachable_instructions(llvm::Function* F);
   bool can_insert_assertion_at_location(llvm::Function* F,
                                         llvm::BasicBlock* B,
                                         llvm::LoopInfo& LI);
@@ -128,6 +129,7 @@ private:
   std::unordered_map<llvm::Function*, std::vector<llvm::Function*>> m_path_assertions;
   // path for each assert
   std::unordered_map<llvm::Function*, FunctionOHPaths::OHPath> m_function_path;
-  std::unordered_map<llvm::Function*, BasicBlocksSet> m_function_blocks_using_arguments;
+  // argument reachable instructions
+  std::unordered_map<llvm::Function*, InstructionSet> m_argument_reachable_instructions;
 };
 }

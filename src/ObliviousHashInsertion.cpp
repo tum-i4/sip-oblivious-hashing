@@ -924,7 +924,7 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
     if (!can_insert_assertion) {
         llvm::dbgs() << "Can not insert short range assertion to the path. Processing deterministic blocks only.\n";
     }
-    const auto& blocks_using_arguments = get_blocks_using_arguments(F);
+    const auto& argument_reachable_instr = get_argument_reachable_instructions(F);
     llvm::BasicBlock* entry_block = path.front();
     llvm::LLVMContext &Ctx = entry_block->getContext();
     auto local_hash = new llvm::AllocaInst(llvm::Type::getInt64Ty(Ctx), 0,8, "local_hash");
@@ -933,9 +933,12 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
     entry_block->getInstList().insertAfter(alloca_pos, local_store);
 
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
-    const auto& skip_instruction_pred = [&local_hash, &local_store, &F_input_dependency_info] (llvm::Instruction* instr)
+    const auto& skip_instruction_pred = [&local_hash, &local_store, &F_input_dependency_info, &argument_reachable_instr]
+                                        (llvm::Instruction* instr)
                                          {
-                                            return instr == local_hash || instr == local_store;
+                                            return instr == local_hash
+                                                || instr == local_store
+                                                || argument_reachable_instr.find(instr) != argument_reachable_instr.end();
                                          };
 
 
@@ -950,18 +953,9 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
             }
         } else if (can_insert_assertion) {
             bool insert_assertion = (B == path.back() && modified);
-            if (blocks_using_arguments.find(B) != blocks_using_arguments.end()) {
-                stats.addNumberOfSkippedArgUsingBlocks(1);
-                if ((B == path.back()) && modified && has_inputdep_block) {
-                    modified |= process_path_block(F, B, local_hash, insert_assertion,
-                                                   [] (llvm::Instruction* instr) {return true;}, local_hash_updated,
-                                                   path_num);
-                }
-            } else {
-                modified |= process_path_block(F, B, local_hash, insert_assertion,
-                                               skip_instruction_pred, local_hash_updated,
-                                               path_num);
-            }
+            modified |= process_path_block(F, B, local_hash, insert_assertion,
+                                           skip_instruction_pred, local_hash_updated,
+                                           path_num);
             has_inputdep_block = true;
         } else {
             stats.addNumberOfSkippedLoopBlocks(1);
@@ -1018,7 +1012,6 @@ bool ObliviousHashInsertionPass::can_instrument_instruction(llvm::Function* F,
     if (hasSkipTag(*I)) {
         return false;
     }
-    // TODO: make this change after discussing
     if (!F_input_dependency_info->isInputDependent(I)) {
         if (!F_input_dependency_info->isInputIndependent(I)) {
             return false;
@@ -1114,22 +1107,23 @@ bool ObliviousHashInsertionPass::can_insert_short_range_assertion(llvm::Function
     return true;
 }
 
-const ObliviousHashInsertionPass::BasicBlocksSet& ObliviousHashInsertionPass::get_blocks_using_arguments(llvm::Function* F)
+const ObliviousHashInsertionPass::InstructionSet&
+ObliviousHashInsertionPass::get_argument_reachable_instructions(llvm::Function* F)
 {
-    auto pos = m_function_blocks_using_arguments.find(F);
-    if (pos == m_function_blocks_using_arguments.end()) {
-        collect_blocks_using_arguments(F);
-        pos = m_function_blocks_using_arguments.find(F);
+    auto pos = m_argument_reachable_instructions.find(F);
+    if (pos == m_argument_reachable_instructions.end()) {
+        collect_argument_reachable_instructions(F);
+        pos = m_argument_reachable_instructions.find(F);
     }
     return pos->second;
 }
 
-void ObliviousHashInsertionPass::collect_blocks_using_arguments(llvm::Function* F)
+void ObliviousHashInsertionPass::collect_argument_reachable_instructions(llvm::Function* F)
 {
-    std::unordered_set<llvm::BasicBlock*> blocks;
+    InstructionSet instructions;
     dg::LLVMDependenceGraph* F_dg = m_slicer->getDG(F);
     if (!F_dg) {
-        m_function_blocks_using_arguments.insert(std::make_pair(F, blocks));
+        m_argument_reachable_instructions.insert(std::make_pair(F, instructions));
         return;
     }
 
@@ -1163,23 +1157,11 @@ void ObliviousHashInsertionPass::collect_blocks_using_arguments(llvm::Function* 
             if (!inst) {
                 continue;
             }
-            if (auto* storeInst = llvm::dyn_cast<llvm::StoreInst>(inst)) {
-                if (llvm::dyn_cast<llvm::Argument>(storeInst->getValueOperand())) {
-                    continue;
-                }
-            }
-            if (!isHashableInst(inst)) {
-                continue;
-            }
-            if ((F_input_dependency_info->isInputDepFunction() ||
-                        F_input_dependency_info->isInputDependentBlock(inst->getParent()))
-                    && !F_input_dependency_info->isDataDependent(inst)) {
-                blocks.insert(inst->getParent());
-            }
+            instructions.insert(inst);
         }
         ++arg_it;
     }
-    m_function_blocks_using_arguments.insert(std::make_pair(F, blocks));
+    m_argument_reachable_instructions.insert(std::make_pair(F, instructions));
 }
 
 bool ObliviousHashInsertionPass::can_insert_assertion_at_location(
