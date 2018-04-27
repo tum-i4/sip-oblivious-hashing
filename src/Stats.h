@@ -28,8 +28,9 @@ private:
     int numberOfShortRangeProtectedGuardArguments = 0;
 
     int numberOfProtectedBlocks = 0;
-    int numberOfShortRangeProtectedBlocks = 0;
     int numberOfSensitiveBlocks = 0;
+    int numberOfShortRangeProtectedBlocks = 0;
+    int numberOfShortRangeSkippedLoopBlocks = 0;
 
     int numberOfSensitivePaths = 0;
     int numberOfProtectedPaths = 0;
@@ -37,8 +38,6 @@ private:
     int numberOfProtectedFunctions = 0;
     int numberOfNonHashableInstructions = 0;
 
-    int numberOfSkippedLoopBlocks = 0;
-    int numberOfSkippedArgUsingBlocks = 0;
 
 public:
     void addNumberOfImplicitlyProtectedInstructions(int);
@@ -59,17 +58,15 @@ public:
     void addNumberOfShortRangeProtectedGuardArguments(int);
 
     void addNumberOfProtectedBlocks(int);
-    void addNumberOfShortRangeProtectedBlocks(int);
     void addNumberOfSensitiveBlocks(int);
+    void addNumberOfShortRangeProtectedBlocks(int);
+    void addNumberOfShortRangeSkippedLoopBlocks(int);
 
     void addNumberOfSensitiveFunctions(int);
     void addNumberOfProtectedFunctions(int);
     void addNumberOfSensitivePaths(int);
     void addNumberOfProtectedPaths(int);
     void addNumberOfNonHashableInstructions(int);
-
-    void addNumberOfSkippedLoopBlocks(int);
-    void addNumberOfSkippedArgUsingBlocks(int);
 
     void dumpJson(std::string fileName);
 };

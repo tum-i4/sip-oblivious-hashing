@@ -951,14 +951,24 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
             if (m_processed_deterministic_blocks.insert(B).second) {
                 modified |= process_block(F, B, can_insert_assertions, skip_instruction_pred);
             }
+            m_protectedBlocks.insert(B);
+            if (m_skippedBlocks.erase(B) == 1) {
+                stats.addNumberOfShortRangeSkippedLoopBlocks(-1);
+            }
         } else if (can_insert_assertion) {
             bool insert_assertion = (B == path.back() && modified);
             modified |= process_path_block(F, B, local_hash, insert_assertion,
                                            skip_instruction_pred, local_hash_updated,
                                            path_num);
             has_inputdep_block = true;
+            m_protectedBlocks.insert(B);
+            if (m_skippedBlocks.erase(B) == 1) {
+                stats.addNumberOfShortRangeSkippedLoopBlocks(-1);
+            }
         } else {
-            stats.addNumberOfSkippedLoopBlocks(1);
+            if (m_skippedBlocks.insert(B).second) {
+                stats.addNumberOfShortRangeSkippedLoopBlocks(1);
+            }
         }
     }
     if (!modified) {
