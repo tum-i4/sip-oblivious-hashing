@@ -83,6 +83,16 @@ bool isHashableInst(llvm::Instruction* I)
     return false;
 }
 
+llvm::Loop* get_outermost_loop(llvm::Loop* loop)
+{
+    auto* parent_loop = loop;
+    while (parent_loop) {
+        loop = parent_loop;
+        parent_loop = loop->getParentLoop();
+    }
+    return loop;
+}
+
 void dump_path(const FunctionOHPaths::OHPath& path)
 {
     for (const auto& B : path) {
@@ -99,7 +109,9 @@ public:
                              const FunctionOHPaths::OHPath& path,
                              llvm::Function* F,
                              llvm::Function* assert_F,
+                             bool is_soft_assert,
                              llvm::Function* assert,
+                             llvm::Function* soft_assert,
                              llvm::Function* hashFunc1,
                              llvm::Function* hashFunc2);
 
@@ -121,6 +133,7 @@ private:
     bool isHashCall(llvm::CallInst* callInst);
     bool isGlobalHashInstr(llvm::CallInst* callInst);
 
+    static bool isSoftAssert(llvm::FunctionType* assert_type);
     static std::string getPathFunctionName(const std::string& assert_name);
 
 private:
@@ -128,7 +141,9 @@ private:
     const FunctionOHPaths::OHPath& m_path;
     llvm::Function* m_F;
     llvm::Function* m_assertF;
+    bool m_isSoftAssert;
     llvm::Function* m_assert;
+    llvm::Function* m_softAssert;
     llvm::Function* m_hashFunc1;
     llvm::Function* m_hashFunc2;
     llvm::Function* m_pathF;
@@ -139,14 +154,18 @@ FunctionExtractionHelper::FunctionExtractionHelper(Slicer& slicer,
                                                    const FunctionOHPaths::OHPath& path,
                                                    llvm::Function* F,
                                                    llvm::Function* assert_F,
+                                                   bool is_soft_assert,
                                                    llvm::Function* assert,
+                                                   llvm::Function* soft_assert,
                                                    llvm::Function* hashF1,
                                                    llvm::Function* hashF2)
     : m_slicer(slicer)
     , m_path(path)
     , m_F(F)
     , m_assertF(assert_F)
+    , m_isSoftAssert(is_soft_assert)
     , m_assert(assert)
+    , m_softAssert(soft_assert)
     , m_hashFunc1(hashF1)
     , m_hashFunc2(hashF2)
     , m_pathF(nullptr)
@@ -185,8 +204,21 @@ void FunctionExtractionHelper::extractFunction()
 void FunctionExtractionHelper::createPathBlocks()
 {
     for (auto& path_B : m_path) {
-        llvm::BasicBlock* block = llvm::BasicBlock::Create(m_pathF->getParent()->getContext(), path_B->getName(), m_pathF);
-        m_valueMap.insert(std::make_pair(path_B, llvm::WeakVH(block)));
+        if (m_valueMap.find(path_B) == m_valueMap.end()) {
+            llvm::BasicBlock* block = llvm::BasicBlock::Create(m_pathF->getParent()->getContext(), path_B->getName(), m_pathF);
+            m_valueMap.insert(std::make_pair(path_B, llvm::WeakVH(block)));
+        }
+        auto path_term = path_B->getTerminator();
+        if (!path_term) {
+            continue;
+        }
+        for (unsigned i = 0; i < path_term->getNumSuccessors(); ++i) {
+            auto* succ_B = path_term->getSuccessor(i);
+            if (m_valueMap.find(succ_B) == m_valueMap.end()) {
+                llvm::BasicBlock* succ_block = llvm::BasicBlock::Create(m_pathF->getParent()->getContext(), succ_B->getName(), m_pathF);
+                m_valueMap.insert(std::make_pair(succ_B, llvm::WeakVH(succ_block)));
+            }
+        }
     }
 }
 
@@ -196,11 +228,12 @@ void FunctionExtractionHelper::extractSlice(const Slicer::Slice& slice)
     for (auto I : slice) {
         //llvm::dbgs() << *I << "\n";
         // skip instructions that are outside of the path
-        if (!FunctionOHPaths::pathContainsBlock(m_path, I->getParent())) {
-            continue;
-        }
         if (llvm::dyn_cast<llvm::ReturnInst>(I)) {
             continue;
+        }
+        if (m_valueMap.find(I->getParent()) == m_valueMap.end()) {
+            llvm::BasicBlock* block = llvm::BasicBlock::Create(m_pathF->getParent()->getContext(), I->getParent()->getName(), m_pathF);
+            m_valueMap.insert(std::make_pair(I->getParent(), llvm::WeakVH(block)));
         }
         if (auto* callInst = llvm::dyn_cast<llvm::CallInst>(I)) {
             if (isGlobalHashInstr(callInst)) {
@@ -226,8 +259,18 @@ void FunctionExtractionHelper::replaceUniqueAssertCall(llvm::CallInst* callInst)
     // assertion call looks like following
     // %0 = load i64, i64* @global
     // call void @assert(i64 %0, i64 placeholder)
+    if (m_isSoftAssert) {
+        llvm::LLVMContext &Ctx = callInst->getModule()->getContext();
+        llvm::IRBuilder<> builder(callInst);
+        builder.SetInsertPoint(callInst->getParent(), builder.GetInsertPoint());
+
+        callInst->mutateFunctionType(m_softAssert->getFunctionType());
+        callInst->setArgOperand(2, nullptr);
+        callInst->setCalledFunction(m_softAssert);
+    } else {
+        callInst->setCalledFunction(m_assert);
+    }
     llvm::LoadInst* global_load = llvm::dyn_cast<llvm::LoadInst>(callInst->getArgOperand(0));
-    callInst->setCalledFunction(m_assert);
     callInst->setArgOperand(0, global_load->getPointerOperand());
     auto pos = m_valueMap.find(global_load);
     if (pos != m_valueMap.end()) {
@@ -280,6 +323,15 @@ void FunctionExtractionHelper::removeArgumentReachableInstruction(llvm::Instruct
     if (!FunctionOHPaths::pathContainsBlock(m_path, inst->getParent())) {
         return;
     }
+    auto user_it = inst->user_begin();
+    while (user_it != inst->user_end()) {
+        auto* user_inst = llvm::dyn_cast<llvm::Instruction>(*user_it);
+        ++user_it;
+        if (user_inst && user_inst == inst) {
+            continue;
+        }
+        removeArgumentReachableInstruction(user_inst);
+    }
     auto pos = m_valueMap.find(inst);
     if (pos == m_valueMap.end()) {
         return;
@@ -295,15 +347,19 @@ void FunctionExtractionHelper::adjustBlockTerminators()
     llvm::LLVMContext& Ctx = m_pathF->getParent()->getContext();
     llvm::BasicBlock* exit_block = llvm::BasicBlock::Create(Ctx, "exit", m_pathF);
     llvm::ReturnInst::Create(Ctx, exit_block);
-    for (auto& block : m_path) {
-        auto path_b = llvm::dyn_cast<llvm::BasicBlock>(m_valueMap[block]);
+    for (auto& block : *m_F) {
+        auto block_pos = m_valueMap.find(&block);
+        if (block_pos == m_valueMap.end()) {
+            continue;
+        }
+        auto path_b = llvm::dyn_cast<llvm::BasicBlock>(m_valueMap[&block]);
         auto path_term = path_b->getTerminator();
         if (path_term) {
             for (unsigned i = 0; i < path_term->getNumSuccessors(); ++i) {
                 m_valueMap.insert(std::make_pair(path_term->getSuccessor(i), llvm::WeakVH(exit_block)));
             }
         } else {
-            auto term = block->getTerminator();
+            auto term = block.getTerminator();
             llvm::BasicBlock* dest = nullptr;
             for (unsigned i = 0; i < term->getNumSuccessors(); ++i) {
                 dest = term->getSuccessor(i);
@@ -373,11 +429,12 @@ llvm::FunctionType* get_path_function_type(llvm::Function* F)
     return llvm::FunctionType::get(llvm::Type::getVoidTy(F->getContext()), params, false);
 }
 
-llvm::Function* get_assert_function_with_name(llvm::Module* M, const std::string& f_name)
+llvm::Function* get_assert_function_with_name(llvm::Module* M,
+                                              const std::string& f_name)
 {
     llvm::LLVMContext &Ctx = M->getContext();
-    llvm::ArrayRef<llvm::Type *> params {llvm::Type::getInt64Ty(Ctx),
-                                         llvm::Type::getInt64Ty(Ctx)};
+    llvm::ArrayRef<llvm::Type *> params;
+    params = {llvm::Type::getInt64Ty(Ctx), llvm::Type::getInt64Ty(Ctx)};
     llvm::FunctionType *function_type = llvm::FunctionType::get(llvm::Type::getVoidTy(Ctx), params, false);
     return llvm::dyn_cast<llvm::Function>(M->getOrInsertFunction(f_name, function_type));
 }
@@ -712,14 +769,11 @@ void ObliviousHashInsertionPass::insertAssert(llvm::Instruction &I,
                                               bool short_range_assert,
                                               llvm::Constant* assert_F)
 {
-    llvm::LLVMContext &Ctx = I.getModule()->getContext();
-    llvm::IRBuilder<> builder(&I);
-    builder.SetInsertPoint(I.getParent(), builder.GetInsertPoint());
     // assert for cmp instruction should have been added
     if (llvm::CmpInst::classof(&I)) {
         // log the last value which contains hash for this cmp instruction
         // builder.SetInsertPoint(I.getParent(), ++builder.GetInsertPoint());
-        insertAssert(builder, I, hash_to_assert, short_range_assert, assert_F);
+        doInsertAssert(I, hash_to_assert, short_range_assert, assert_F);
         return;
     }
     if (auto callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
@@ -727,25 +781,25 @@ void ObliviousHashInsertionPass::insertAssert(llvm::Instruction &I,
         if (called_function != nullptr && !called_function->isIntrinsic() &&
                 called_function != hashFunc1 && called_function != hashFunc2) {
             // always insert assert before call instructions
-            insertAssert(builder, I, hash_to_assert, short_range_assert, assert_F);
+            doInsertAssert(I, hash_to_assert, short_range_assert, assert_F);
             return;
         }
     }
     if (short_range_assert) {
-        insertAssert(builder, I, hash_to_assert, true, assert_F);
+        doInsertAssert(I, hash_to_assert, true, assert_F);
     } else if (get_random(2)) {
         // insert randomly
-        insertAssert(builder, I, hash_to_assert, false, assert_F);
+        doInsertAssert(I, hash_to_assert, false, assert_F);
     }
 }
 
-void ObliviousHashInsertionPass::insertAssert(llvm::IRBuilder<> &builder,
-                                              llvm::Instruction &instr,
-                                              llvm::Value* hash_value,
-                                              bool short_range_assert,
-                                              llvm::Constant* assert_F)
+void ObliviousHashInsertionPass::doInsertAssert(llvm::Instruction &instr,
+                                                llvm::Value* hash_value,
+                                                bool short_range_assert,
+                                                llvm::Constant* assert_F)
 {
-    llvm::LLVMContext &Ctx = builder.getContext();
+    llvm::LLVMContext &Ctx = instr.getModule()->getContext();
+    llvm::IRBuilder<> builder(&instr);
     builder.SetInsertPoint(instr.getParent(), builder.GetInsertPoint());
 
     ConstantInt *const_int = (ConstantInt *)ConstantInt::get(
@@ -801,6 +855,7 @@ void ObliviousHashInsertionPass::setup_functions()
     hashFunc1 = llvm::dyn_cast<llvm::Function>(m_M->getOrInsertFunction("hash1", function_type));
     hashFunc2 = llvm::dyn_cast<llvm::Function>(m_M->getOrInsertFunction("hash2", function_type));
     assert = llvm::dyn_cast<llvm::Function>(m_M->getOrInsertFunction("assert", function_type));
+    soft_assert = llvm::dyn_cast<llvm::Function>(m_M->getOrInsertFunction("soft_assert", function_type));
 }
 
 void ObliviousHashInsertionPass::setup_hash_values()
@@ -914,17 +969,22 @@ void ObliviousHashInsertionPass::insert_calls_for_path_functions()
 }
 
 bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
-                                              const FunctionOHPaths::OHPath& path,
+                                              FunctionOHPaths::OHPath& path,
                                               unsigned path_num)
 {
     bool modified = false;
     llvm::dbgs() << "Processing path: ";
     dump_path(path);
+    const auto& argument_reachable_instr = get_argument_reachable_instructions(F);
     const bool can_insert_assertion = can_insert_short_range_assertion(F, path);
     if (!can_insert_assertion) {
         llvm::dbgs() << "Can not insert short range assertion to the path. Processing deterministic blocks only.\n";
     }
-    const auto& argument_reachable_instr = get_argument_reachable_instructions(F);
+    bool is_loop_path = false;
+    llvm::BasicBlock* exit_block = get_path_exit_block(F, path, is_loop_path);
+    assert(exit_block);
+    llvm::dbgs() << "Exit block of the path: " << exit_block->getName() << "\n";
+
     llvm::BasicBlock* entry_block = path.front();
     llvm::LLVMContext &Ctx = entry_block->getContext();
     auto local_hash = new llvm::AllocaInst(llvm::Type::getInt64Ty(Ctx), 0,8, "local_hash");
@@ -945,6 +1005,7 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
     llvm::LoopInfo &LI = getAnalysis<llvm::LoopInfoWrapperPass>(*F).getLoopInfo();
     bool has_inputdep_block = false;
     bool local_hash_updated = false;
+    bool insert_assertion = false;
     for (auto& B : path) {
         if (!F_input_dependency_info->isInputDependentBlock(B) && !F_input_dependency_info->isInputDepFunction()) {
             bool can_insert_assertions = can_insert_assertion_at_location(F, B, LI);
@@ -956,10 +1017,10 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
                 stats.addNumberOfShortRangeSkippedLoopBlocks(-1);
             }
         } else if (can_insert_assertion) {
-            bool insert_assertion = (B == path.back() && modified);
+            insert_assertion = (B == exit_block && modified);
             modified |= process_path_block(F, B, local_hash, insert_assertion,
                                            skip_instruction_pred, local_hash_updated,
-                                           path_num);
+                                           path_num, is_loop_path);
             has_inputdep_block = true;
             m_protectedBlocks.insert(B);
             if (m_skippedBlocks.erase(B) == 1) {
@@ -970,6 +1031,12 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
                 stats.addNumberOfShortRangeSkippedLoopBlocks(1);
             }
         }
+    }
+    if (!insert_assertion && modified && has_inputdep_block && exit_block != path.back()) {
+        modified |= process_path_block(F, exit_block, local_hash, true,
+                                       [] (llvm::Instruction* instr) {return true;}, local_hash_updated,
+                                       path_num, is_loop_path);
+        path.push_back(exit_block);
     }
     if (!modified) {
         llvm::dbgs() << "No oh has been applied in the path\n";
@@ -996,11 +1063,14 @@ void ObliviousHashInsertionPass::extract_path_functions()
     for (const auto& F_asserts : m_path_assertions) {
         //llvm::dbgs() << "F: " << F_asserts.first->getName() << "\n";
         for (const auto& F_assert : F_asserts.second) {
+            bool is_soft_assert = (m_soft_asserts.find(F_assert) != m_soft_asserts.end());
             FunctionExtractionHelper pathExtractor(*m_slicer,
                                                    m_function_path[F_assert],
                                                    F_asserts.first,
                                                    F_assert,
+                                                   is_soft_assert,
                                                    assert,
+                                                   soft_assert,
                                                    hashFunc1,
                                                    hashFunc2);
             pathExtractor.extractFunction();
@@ -1035,7 +1105,7 @@ bool ObliviousHashInsertionPass::process_path_block(llvm::Function* F, llvm::Bas
                                                llvm::Value* hash_value, bool insert_assert,
                                                const SkipFunctionsPred& skipInstructionPred,
                                                bool& local_hash_updated,
-                                               int path_num)
+                                               int path_num, bool is_loop_path)
 {
     bool modified = false;
     assert(hash_value);
@@ -1051,6 +1121,9 @@ bool ObliviousHashInsertionPass::process_path_block(llvm::Function* F, llvm::Bas
         const std::string& assert_name = "assert_" + get_path_function_name(F->getName(), path_num);
         llvm::Function* path_assert = get_assert_function_with_name(F->getParent(), assert_name);
         m_path_assertions[F].push_back(path_assert);
+        if (is_loop_path) {
+            m_soft_asserts.insert(path_assert);
+        }
         insertAssert(I, hash_value, true, path_assert);
     }
     if (modified) {
@@ -1103,18 +1176,47 @@ bool ObliviousHashInsertionPass::can_insert_short_range_assertion(llvm::Function
     llvm::LoopInfo &LI = getAnalysis<llvm::LoopInfoWrapperPass>(*F).getLoopInfo();
 
     llvm::BasicBlock* assert_block = path.back();
-    // if function is input dependent and assert block is inside a loop
-    if (F_input_dependency_info->isInputDepFunction() && LI.getLoopFor(assert_block)) {
-        llvm::dbgs() << "The last block of a path is in a loop. Can not insert assertion\n";
-        return false;
-    }
-    // if outer loop of the path is input dependent and assert block is inside the loop
-    for (auto& B : path) {
-        if (LI.getLoopFor(B) && F_input_dependency_info->isInputDependentBlock(B)) {
+    const auto& argument_reachable_instr = get_argument_reachable_instructions(F);
+    if (auto* loop = LI.getLoopFor(assert_block)) {
+        llvm::BasicBlock* header = loop->getHeader();
+        if (F_input_dependency_info->isInputDependentBlock(header)) {
+            return false;
+        }
+        if (argument_reachable_instr.find(header->getTerminator()) != argument_reachable_instr.end()) {
             return false;
         }
     }
+    // If there is a block in a path which is inside a loop and is either data dependent or reachable from argument - do
+    // not process the path
+    for (auto& B : path) {
+        if (auto* B_loop = LI.getLoopFor(B)) {
+            if (F_input_dependency_info->isInputDependentBlock(B)
+                    || argument_reachable_instr.find(B->getTerminator()) != argument_reachable_instr.end()) {
+                return false;
+            }
+        }
+    }
+
     return true;
+}
+
+llvm::BasicBlock* ObliviousHashInsertionPass::get_path_exit_block(llvm::Function* F,
+                                                                  const FunctionOHPaths::OHPath& path,
+                                                                  bool& is_loop_path)
+{
+    llvm::LoopInfo &LI = getAnalysis<llvm::LoopInfoWrapperPass>(*F).getLoopInfo();
+    auto* loop = LI.getLoopFor(path.back());
+    if (!loop) {
+        is_loop_path = false;
+        return path.back();
+    }
+    is_loop_path = true;
+    // exit block of the outer most loop
+    auto* parent_loop = get_outermost_loop(loop);
+    assert(parent_loop);
+    llvm::SmallVector<llvm::BasicBlock*, 8> exitBlocks;
+    parent_loop->getExitBlocks(exitBlocks);
+    return exitBlocks[0];
 }
 
 const ObliviousHashInsertionPass::InstructionSet&

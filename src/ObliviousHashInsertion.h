@@ -55,7 +55,7 @@ private:
   bool process_function_with_global_oh(llvm::Function* F);
   void insert_calls_for_path_functions();
   bool process_path(llvm::Function* F,
-                    const FunctionOHPaths::OHPath& path,
+                    FunctionOHPaths::OHPath& path,
                     unsigned path_num);
   void extract_path_functions();
   bool can_instrument_instruction(llvm::Function* F,
@@ -65,12 +65,15 @@ private:
                           llvm::Value* hash_value, bool insert_assert,
                           const SkipFunctionsPred& skipInstructionPred,
                           bool& local_hash_updated,
-                          int path_num);
+                          int path_num, bool is_loop_path);
   bool process_block(llvm::Function* F, llvm::BasicBlock* B,
                      bool insert_assert,
                      const SkipFunctionsPred& skipInstructionPred);
   bool can_insert_short_range_assertion(llvm::Function* F,
                                         const FunctionOHPaths::OHPath& path);
+  llvm::BasicBlock* get_path_exit_block(llvm::Function* F,
+                                        const FunctionOHPaths::OHPath& path,
+                                        bool& is_loop_path);
   const InstructionSet& get_argument_reachable_instructions(llvm::Function* F);
   void collect_argument_reachable_instructions(llvm::Function* F);
   bool can_insert_assertion_at_location(llvm::Function* F,
@@ -89,11 +92,10 @@ private:
                     llvm::Value* hash_value,
                     bool short_range_assert,
                     llvm::Constant* assert_F);
-  void insertAssert(llvm::IRBuilder<> &builder,
-                    llvm::Instruction &I,
-                    llvm::Value* hash_value,
-                    bool short_range_assert,
-                    llvm::Constant* assert_F);
+  void doInsertAssert(llvm::Instruction &I,
+                      llvm::Value* hash_value,
+                      bool short_range_assert,
+                      llvm::Constant* assert_F);
   void parse_skip_tags();
   bool hasSkipTag(llvm::Instruction& I);
   bool isInstAGuard(llvm::Instruction &I);
@@ -120,6 +122,7 @@ private:
   llvm::Function *hashFunc1;
   llvm::Function *hashFunc2;
   llvm::Function *assert;
+  llvm::Function *soft_assert;
   std::vector<llvm::GlobalVariable *> hashPtrs;
   llvm::GlobalVariable *TempVariable;
   std::vector<unsigned> usedHashIndices;
@@ -134,5 +137,6 @@ private:
 
   BasicBlocksSet m_protectedBlocks;
   BasicBlocksSet m_skippedBlocks;
+  std::unordered_set<llvm::Function*> m_soft_asserts;
 };
 }

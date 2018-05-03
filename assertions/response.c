@@ -32,6 +32,12 @@ void assert(long long hash, long long expected) {
 
 }
 
+void soft_assert(long long hash, long long expected) {
+    if (hash != -1) {
+        assert(hash, expected);
+    }
+}
+
 void hash1(long long *hashVariable, long long value) {
 	*hashVariable = *hashVariable + value;
 	if(DEBUG2) printf("[h1] Hash=%lld, Value=%lld\n", *hashVariable, value);
