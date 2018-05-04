@@ -1,9 +1,7 @@
 from pwn import *
 import sys, subprocess
 import argparse
-
-
-
+import mmap
 def patch_binary(orig_name, new_name,debug):
     patch_map ={}
     fld_instrs = []
@@ -52,13 +50,40 @@ def patch_binary(orig_name, new_name,debug):
         patch_map[pos] = expected
         
 	e.write(pos+2, struct.pack("<q", expected_hashes[i]))
-	i = i + 1
+        i = i + 1
 	dis = e.disasm(pos, 10)
         if debug:
             print 'after ', dis
 
     e.save(new_name)
-    return i;
+    return i, placeholders, expected_hashes;
+
+def find_placeholder(mm, search_bytes):
+    addr = mm.find(search_bytes)
+    if addr == -1:
+        mm.seek(0)
+    addr = mm.find(search_bytes)
+    return addr
+def patch_address(mm, addr, patch_value):
+    mm.seek(addr,os.SEEK_SET)
+    mm.write(patch_value)
+def patch_placeholders(filename, placeholders, expected_hashes):
+    with open(filename, 'r+b') as f:
+        mm = mmap.mmap(f.fileno(), 0)
+        i=0
+        patch_count = 0
+        for placeholder in placeholders:
+            expected_hash = expected_hashes[i]
+            search_bytes = struct.pack("<q", long(placeholder))
+            address =0
+            patch_value = struct.pack("<q", expected_hash)
+            while address!=-1:
+                print 'Found placeholder '+placeholder+' trying to patch it...'
+                patch_count = patch_count + 1
+                address = find_placeholder(mm, search_bytes)
+                if address != -1:
+                    patch_address(mm,address,patch_value)
+            i = i+1
 
 
 def main():
@@ -71,7 +96,7 @@ def main():
 
 
     results = parser.parse_args()
-    count_patched = patch_binary(results.binary,results.new_binary, results.debug)
+    count_patched, placeholders, expected_hashes = patch_binary(results.binary,results.new_binary, results.debug)
     print "Patched:",count_patched," in ",results.new_binary," saved as:",results.new_binary
     assert_count =0
     if results.oh_stats_file:
@@ -89,6 +114,9 @@ def main():
             #exit(1)
         else:
             print 'Info. Patched=',count_patched," Asserts=",assert_count
+
+    #patch identifer placeholders
+    patch_placeholders(results.new_binary,placeholders, expected_hashes)
 
 if __name__ == "__main__":
     main()
