@@ -17,6 +17,15 @@ void dump(const std::string& label, const std::unordered_set<llvm::BasicBlock*> 
     }
 }
 
+void dump(const std::string& label, const std::unordered_set<llvm::Instruction*> instructions)
+{
+    llvm::dbgs() << label << "\n";
+    for (const auto& I : instructions) {
+        llvm::dbgs() << I->getParent()->getName() << "  " << *I << "\n";
+    }
+}
+
+
 }
 
 namespace oh {
@@ -61,11 +70,48 @@ void OHStats::addNonHashableBlock(llvm::BasicBlock* B)
     }
 }
 
+void OHStats::addUnprotectedDataDependentBlock(llvm::BasicBlock* B)
+{
+    if (m_unprotectedDataDependentBlocks.insert(B).second) {
+        addNumberOfUnprotectedDataDependentBlocks(1);
+        numberOfUnprotectedInputDependentInstructions += B->getInstList().size();
+    }
+}
+
+void OHStats::addShortRangeProtectedInstruction(llvm::Instruction* I)
+{
+    if (m_shortRangeProtectedInstructions.insert(I).second) {
+        numberOfShortRangeProtectedInstructions += 1;
+    }
+    m_unprotectedArgumentReachableInstructions.erase(I);
+}
+
+void OHStats::addDataDependentInstruction(llvm::Instruction* I)
+{
+    if (m_dataDependentInstructions.insert(I).second) {
+        numberOfDataDependentInstructions += 1;
+    }
+}
+
+void OHStats::addNonHashableInstruction(llvm::Instruction* I)
+{
+    m_nonHashableInstructions.insert(I);
+}
+
+void OHStats::addUnprotectedArgumentReachableInstruction(llvm::Instruction* I)
+{
+    // if I is protected by global OH this function won't get called for it.
+    if (m_shortRangeProtectedInstructions.find(I) == m_shortRangeProtectedInstructions.end()) {
+        m_unprotectedArgumentReachableInstructions.insert(I);
+    }
+}
+
 void OHStats::eraseFromUnprotectedBlocks(llvm::BasicBlock* B)
 {
     if (m_unprotectedLoopBlocks.erase(B)) {
         addNumberOfUnprotectedLoopBlocks(-1);
     }
+    // TODO: non hashable Block can not becme hashable
     if (m_nonHashableBlocks.erase(B)) {
         addNumberOfNonHashableBlocks(-1);
     }
@@ -186,7 +232,26 @@ void OHStats::addNumberOfNonHashableInstructions(int value)
     numberOfNonHashableInstructions += value;
 }
 
+void OHStats::addNumberOfUnprotectedLoopInstructions(int value)
+{
+    numberOfUnprotectedLoopInstructions += value;
+}
+
+void OHStats::addNumberOfUnprotectedInputDependentInstructions(int value)
+{
+    numberOfUnprotectedInputDependentInstructions += value;
+}
+
+void OHStats::addUnprotectedLoopInstructions()
+{
+    for (auto& B : m_unprotectedLoopBlocks) {
+        numberOfUnprotectedLoopInstructions += B->getInstList().size();
+    }
+}
+
 void OHStats::dumpJson(std::string filePath){
+    addUnprotectedLoopInstructions();
+
 	json j;
 	j["numberOfImplicitlyProtectedInstructions"] = numberOfImplicitlyProtectedInstructions;
 	j["numberOfProtectedInstructions"] = numberOfProtectedInstructions;
@@ -216,13 +281,24 @@ void OHStats::dumpJson(std::string filePath){
     j["numberOfProtectedFunctions"] = numberOfProtectedFunctions;
     j["numberOfSensitivePaths"] = numberOfSensitivePaths;
     j["numberOfProtectedPaths"] = numberOfProtectedPaths;
+    if (numberOfNonHashableInstructions == 0) {
+        numberOfNonHashableInstructions = m_nonHashableInstructions.size();
+    }
     j["numberOfNonHashableInstructions"] = numberOfNonHashableInstructions;
+    j["numberOfUnprotectedLoopInstructions"] = numberOfUnprotectedLoopInstructions;
+    j["numberOfDataDependentInstructions"] = numberOfDataDependentInstructions;
+    if (numberOfUnprotectedArgumentReachableInstructions == 0) {
+        numberOfUnprotectedArgumentReachableInstructions = m_unprotectedArgumentReachableInstructions.size();
+    }
+    j["numberOfUnprotectedArgumentReachableInstructions"] = numberOfUnprotectedArgumentReachableInstructions;
+    j["numberOfUnprotectedInputDependentInstructions"] = numberOfUnprotectedInputDependentInstructions;
 
 	std::cout << j.dump(4) << std::endl;
 	std::ofstream o(filePath);
 	o << std::setw(4) << j << std::endl;
 
     //dumpBlocks();
+    //dumpInstructions();
 }
 
 void OHStats::dumpBlocks()
@@ -230,6 +306,14 @@ void OHStats::dumpBlocks()
     dump("Protected Blocks", m_protectedBlocks);
     dump("Unprotected loop Blocks", m_unprotectedLoopBlocks);
     dump("Non-hashable Blocks", m_nonHashableBlocks);
+}
+
+void OHStats::dumpInstructions()
+{
+    dump("Short range protected instructions", m_shortRangeProtectedInstructions);
+    dump("data dependent instructions", m_dataDependentInstructions);
+    dump("non hashable instructions", m_nonHashableInstructions);
+    dump("unprotected argument reachable instructions", m_unprotectedArgumentReachableInstructions);
 }
 
 }

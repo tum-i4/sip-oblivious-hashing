@@ -52,7 +52,7 @@ bool skipInstruction(llvm::Instruction& I,
     }
     if (auto callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
         auto calledF = callInst->getCalledFunction();
-        if (calledF && (calledF->getName() == "assert"
+        if (calledF && (calledF->getName() == "assert" || calledF->getName() == "soft_assert"
             || calledF->getName() == "hash1" || calledF->getName() == "hash2")) {
             return true;
         }
@@ -635,14 +635,11 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I,
         isCallGuard = isInstAGuard(I);
     } else if (auto* getElemPtr = llvm::dyn_cast<llvm::GetElementPtrInst>(&I)) {
         hashInserted = instrumentGetElementPtrInst(getElemPtr, hash_to_update);
-    } else {
-        stats.addNumberOfNonHashableInstructions(1);
-        llvm::dbgs() << "Non hashable instruction " << I << "\n"; 
     }
 
     if (hashInserted) {
         is_local_hash ? stats.addNumberOfShortRangeHashCalls(1) : stats.addNumberOfHashCalls(1);
-        is_local_hash ? stats.addNumberOfShortRangeProtectedInstructions(1) : stats.addNumberOfProtectedInstructions(1);
+        is_local_hash ? stats.addShortRangeProtectedInstruction(&I) : stats.addNumberOfProtectedInstructions(1);
         if (isCallGuard) {
             // When call is a guard we compute implicit OH stats
             // See #37
@@ -662,6 +659,8 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I,
         } else {
             is_local_hash ? stats.addNumberOfShortRangeProtectedArguments(protectedArguments) : stats.addNumberOfProtectedArguments(protectedArguments);
         }
+    } else {
+        stats.addNonHashableInstruction(&I);
     }
 
     /// END STATS
@@ -933,7 +932,7 @@ bool ObliviousHashInsertionPass::process_function_with_global_oh(llvm::Function*
     llvm::LoopInfo &LI = getAnalysis<llvm::LoopInfoWrapperPass>(*F).getLoopInfo();
     for (auto& B : *F) {
         if (F_input_dependency_info->isInputDependentBlock(&B)) {
-            stats.addNumberOfUnprotectedDataDependentBlocks(1);
+            stats.addUnprotectedDataDependentBlock(&B);
             continue;
         }
         llvm::dbgs() << "Process " << B.getName() << "\n";
@@ -995,12 +994,15 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
     entry_block->getInstList().insertAfter(alloca_pos, local_store);
 
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
-    const auto& skip_instruction_pred = [&local_hash, &local_store, &F_input_dependency_info, &argument_reachable_instr]
+    const auto& skip_instruction_pred = [this, &local_hash, &local_store, &F_input_dependency_info, &argument_reachable_instr]
                                         (llvm::Instruction* instr)
                                          {
+                                            if (argument_reachable_instr.find(instr) != argument_reachable_instr.end()) {
+                                                stats.addUnprotectedArgumentReachableInstruction(instr);
+                                                return true;
+                                            }
                                             return instr == local_hash
-                                                || instr == local_store
-                                                || argument_reachable_instr.find(instr) != argument_reachable_instr.end();
+                                                || instr == local_store;
                                          };
 
 
@@ -1084,13 +1086,15 @@ bool ObliviousHashInsertionPass::can_instrument_instruction(llvm::Function* F,
     if (hasSkipTag(*I)) {
         return false;
     }
-    if (!F_input_dependency_info->isInputDependent(I)) {
-        if (!F_input_dependency_info->isInputIndependent(I)) {
-            return false;
-        }
-        return true;
+    if (!F_input_dependency_info->isInputDependent(I)
+        && !F_input_dependency_info->isInputIndependent(I)) {
+        return false;
     }
-    return !F_input_dependency_info->isDataDependent(I);
+    if (F_input_dependency_info->isDataDependent(I)) {
+        stats.addDataDependentInstruction(I);
+        return false;
+    }
+    return true;
 }
 
 bool ObliviousHashInsertionPass::process_path_block(llvm::Function* F, llvm::BasicBlock* B,

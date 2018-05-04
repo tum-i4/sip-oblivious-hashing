@@ -3,6 +3,7 @@
 
 namespace llvm {
 class BasicBlock;
+class Instruction;
 }
 
 namespace oh {
@@ -38,21 +39,41 @@ private:
     int numberOfProtectedPaths = 0;
     int numberOfSensitiveFunctions = 0;
     int numberOfProtectedFunctions = 0;
+
     int numberOfNonHashableInstructions = 0;
+    int numberOfUnprotectedLoopInstructions = 0;
+    int numberOfDataDependentInstructions = 0;
+    int numberOfUnprotectedArgumentReachableInstructions = 0;
+    int numberOfUnprotectedInputDependentInstructions = 0;
 
     using BasicBlocksSet = std::unordered_set<llvm::BasicBlock*>;
     BasicBlocksSet m_protectedBlocks;
     BasicBlocksSet m_unprotectedLoopBlocks;
     BasicBlocksSet m_nonHashableBlocks;
+    BasicBlocksSet m_unprotectedDataDependentBlocks;
+    using InstructionSet = std::unordered_set<llvm::Instruction*>;
+    InstructionSet m_shortRangeProtectedInstructions;
+    InstructionSet m_dataDependentInstructions;
+    InstructionSet m_nonHashableInstructions;
+    InstructionSet m_unprotectedArgumentReachableInstructions;
 
 private:
+    void addUnprotectedLoopInstructions();
     void dumpBlocks();
+    void dumpInstructions();
 
 public:
     void addProtectedBlock(llvm::BasicBlock* B);
     void addShortRangeOHProtectedBlock(llvm::BasicBlock* B);
     void addUnprotectedLoopBlock(llvm::BasicBlock* B);
     void addNonHashableBlock(llvm::BasicBlock* B);
+    void addUnprotectedDataDependentBlock(llvm::BasicBlock* B);
+
+    void addShortRangeProtectedInstruction(llvm::Instruction* I);
+    void addDataDependentInstruction(llvm::Instruction* I);
+    void addNonHashableInstruction(llvm::Instruction* I);
+    void addUnprotectedArgumentReachableInstruction(llvm::Instruction* I);
+
     void eraseFromUnprotectedBlocks(llvm::BasicBlock* B);
 
     void addNumberOfImplicitlyProtectedInstructions(int);
@@ -84,6 +105,8 @@ public:
     void addNumberOfSensitivePaths(int);
     void addNumberOfProtectedPaths(int);
     void addNumberOfNonHashableInstructions(int);
+    void addNumberOfUnprotectedLoopInstructions(int);
+    void addNumberOfUnprotectedInputDependentInstructions(int);
 
     void dumpJson(std::string fileName);
 };
