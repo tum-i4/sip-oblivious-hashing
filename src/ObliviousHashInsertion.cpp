@@ -932,10 +932,12 @@ bool ObliviousHashInsertionPass::process_function_with_global_oh(llvm::Function*
     }
     llvm::LoopInfo &LI = getAnalysis<llvm::LoopInfoWrapperPass>(*F).getLoopInfo();
     for (auto& B : *F) {
-        bool can_insert_assertions = can_insert_assertion_at_location(F, &B, LI);
         if (F_input_dependency_info->isInputDependentBlock(&B)) {
+            stats.addNumberOfUnprotectedDataDependentBlocks(1);
             continue;
         }
+        llvm::dbgs() << "Process " << B.getName() << "\n";
+        bool can_insert_assertions = can_insert_assertion_at_location(F, &B, LI);
         modified |= process_block(F, &B, can_insert_assertions, [] (llvm::Instruction* instr) {return false;});
     }
     return modified;
@@ -1012,24 +1014,14 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
             if (m_processed_deterministic_blocks.insert(B).second) {
                 modified |= process_block(F, B, can_insert_assertions, skip_instruction_pred);
             }
-            m_protectedBlocks.insert(B);
-            if (m_skippedBlocks.erase(B) == 1) {
-                stats.addNumberOfShortRangeSkippedLoopBlocks(-1);
-            }
         } else if (can_insert_assertion) {
             insert_assertion = (B == exit_block && modified);
             modified |= process_path_block(F, B, local_hash, insert_assertion,
                                            skip_instruction_pred, local_hash_updated,
                                            path_num, is_loop_path);
             has_inputdep_block = true;
-            m_protectedBlocks.insert(B);
-            if (m_skippedBlocks.erase(B) == 1) {
-                stats.addNumberOfShortRangeSkippedLoopBlocks(-1);
-            }
         } else {
-            if (m_skippedBlocks.insert(B).second) {
-                stats.addNumberOfShortRangeSkippedLoopBlocks(1);
-            }
+            stats.addUnprotectedLoopBlock(B);
         }
     }
     if (!insert_assertion && modified && has_inputdep_block && exit_block != path.back()) {
@@ -1126,9 +1118,8 @@ bool ObliviousHashInsertionPass::process_path_block(llvm::Function* F, llvm::Bas
         }
         insertAssert(I, hash_value, true, path_assert);
     }
-    if (modified) {
-        stats.addNumberOfShortRangeProtectedBlocks(1);
-    }
+    modified ? stats.addShortRangeOHProtectedBlock(B)
+             : stats.addNonHashableBlock(B);
     return modified;
 }
 
@@ -1163,9 +1154,7 @@ bool ObliviousHashInsertionPass::process_block(llvm::Function* F, llvm::BasicBlo
         insertAssert(I, hash_to_assert, false, assert);
         m_hashUpdated = false;
     }
-    if (modified) {
-        stats.addNumberOfProtectedBlocks(1);
-    }
+    modified ? stats.addProtectedBlock(B) : stats.addNonHashableBlock(B);
     return modified;
 }
 

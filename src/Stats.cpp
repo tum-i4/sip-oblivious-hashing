@@ -1,8 +1,75 @@
 #include "Stats.h"
 
+#include "llvm/IR/Function.h"
+#include "llvm/IR/BasicBlock.h"
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/raw_ostream.h"
+
+#include <fstream>
+
+namespace {
+
+void dump(const std::string& label, const std::unordered_set<llvm::BasicBlock*> blocks)
+{
+    llvm::dbgs() << label << "\n";
+    for (const auto& B : blocks) {
+        llvm::dbgs() << B->getParent()->getName() << "  " << B->getName() << "\n";
+    }
+}
+
+}
+
 namespace oh {
 
 using json = nlohmann::json;
+
+void OHStats::addProtectedBlock(llvm::BasicBlock* B)
+{
+    if (m_protectedBlocks.insert(B).second) {
+        addNumberOfProtectedBlocks(1);
+    }
+    eraseFromUnprotectedBlocks(B);
+}
+
+void OHStats::addShortRangeOHProtectedBlock(llvm::BasicBlock* B)
+{
+    if (m_protectedBlocks.insert(B).second) {
+        addNumberOfShortRangeProtectedBlocks(1);
+    }
+    eraseFromUnprotectedBlocks(B);
+}
+
+void OHStats::addUnprotectedLoopBlock(llvm::BasicBlock* B)
+{
+    if (m_protectedBlocks.find(B) != m_protectedBlocks.end()
+        || m_nonHashableBlocks.find(B) != m_nonHashableBlocks.end()) {
+        return;
+    }
+    if (m_unprotectedLoopBlocks.insert(B).second) {
+        addNumberOfUnprotectedLoopBlocks(1);
+    }
+}
+
+void OHStats::addNonHashableBlock(llvm::BasicBlock* B)
+{
+    assert(m_protectedBlocks.find(B) == m_protectedBlocks.end());
+    if (m_nonHashableBlocks.insert(B).second) {
+        addNumberOfNonHashableBlocks(1);
+    }
+    if (m_unprotectedLoopBlocks.erase(B)) {
+        addNumberOfUnprotectedLoopBlocks(-1);
+    }
+}
+
+void OHStats::eraseFromUnprotectedBlocks(llvm::BasicBlock* B)
+{
+    if (m_unprotectedLoopBlocks.erase(B)) {
+        addNumberOfUnprotectedLoopBlocks(-1);
+    }
+    if (m_nonHashableBlocks.erase(B)) {
+        addNumberOfNonHashableBlocks(-1);
+    }
+}
 
 void OHStats::addNumberOfProtectedGuardArguments(int value){
 	this->numberOfProtectedGuardArguments += value;
@@ -64,6 +131,11 @@ void OHStats::addNumberOfShortRangeProtectedGuardArguments(int value)
 	numberOfShortRangeProtectedGuardArguments += value;
 }
 
+void OHStats::addNumberOfSensitiveBlocks(int value)
+{
+    numberOfSensitiveBlocks += value;
+}
+
 void OHStats::addNumberOfProtectedBlocks(int value)
 {
     numberOfProtectedBlocks += value;
@@ -74,14 +146,19 @@ void OHStats::addNumberOfShortRangeProtectedBlocks(int value)
     numberOfShortRangeProtectedBlocks += value;
 }
 
-void OHStats::addNumberOfShortRangeSkippedLoopBlocks(int value)
+void OHStats::addNumberOfUnprotectedLoopBlocks(int value)
 {
-    numberOfShortRangeSkippedLoopBlocks += value;
+    numberOfUnprotectedLoopBlocks += value;
 }
 
-void OHStats::addNumberOfSensitiveBlocks(int value)
+void OHStats::addNumberOfNonHashableBlocks(int value)
 {
-    numberOfSensitiveBlocks += value;
+    numberOfNonHashableBlocks += value;
+}
+
+void OHStats::addNumberOfUnprotectedDataDependentBlocks(int value)
+{
+    numberOfUnprotectedDataDependentBlocks += value;
 }
 
 void OHStats::addNumberOfSensitiveFunctions(int value)
@@ -128,9 +205,12 @@ void OHStats::dumpJson(std::string filePath){
 	j["numberOfShortRangeProtectedGuardInstructions"] = numberOfShortRangeProtectedGuardInstructions;
 	j["numberOfShortRangeProtectedGuardArguments"] = numberOfShortRangeProtectedGuardArguments;
 
+	j["numberOfSensitiveBlocks"] = numberOfSensitiveBlocks;
 	j["numberOfProtectedBlocks"] = numberOfProtectedBlocks;
 	j["numberOfShortRangeProtectedBlocks"] = numberOfShortRangeProtectedBlocks;
-	j["numberOfSensitiveBlocks"] = numberOfSensitiveBlocks;
+	j["numberOfUnprotectedLoopBlocks"] = numberOfUnprotectedLoopBlocks;
+	j["numberOfNonHashableBlocks"] = numberOfNonHashableBlocks;
+	j["numberOfUnprotectedDataDependentBlocks"] = numberOfUnprotectedDataDependentBlocks;
 
     j["numberOfSensitiveFunctions"] = numberOfSensitiveFunctions;
     j["numberOfProtectedFunctions"] = numberOfProtectedFunctions;
@@ -138,11 +218,18 @@ void OHStats::dumpJson(std::string filePath){
     j["numberOfProtectedPaths"] = numberOfProtectedPaths;
     j["numberOfNonHashableInstructions"] = numberOfNonHashableInstructions;
 
-    j["numberOfShortRangeSkippedLoopBlocks"] = numberOfShortRangeSkippedLoopBlocks;
-
 	std::cout << j.dump(4) << std::endl;
 	std::ofstream o(filePath);
 	o << std::setw(4) << j << std::endl;
+
+    //dumpBlocks();
+}
+
+void OHStats::dumpBlocks()
+{
+    dump("Protected Blocks", m_protectedBlocks);
+    dump("Unprotected loop Blocks", m_unprotectedLoopBlocks);
+    dump("Non-hashable Blocks", m_nonHashableBlocks);
 }
 
 }

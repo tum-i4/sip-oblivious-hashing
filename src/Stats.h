@@ -1,10 +1,10 @@
 #include "json.hpp"
-#include <fstream>
-#include <iostream>
-#include <stdlib.h>
-#include "llvm/Support/Debug.h"
-#include "llvm/Support/raw_ostream.h"
-using namespace llvm;
+#include <unordered_set>
+
+namespace llvm {
+class BasicBlock;
+}
+
 namespace oh {
 
 class OHStats
@@ -27,10 +27,12 @@ private:
     int numberOfShortRangeProtectedGuardInstructions = 0;
     int numberOfShortRangeProtectedGuardArguments = 0;
 
-    int numberOfProtectedBlocks = 0;
     int numberOfSensitiveBlocks = 0;
+    int numberOfProtectedBlocks = 0;
     int numberOfShortRangeProtectedBlocks = 0;
-    int numberOfShortRangeSkippedLoopBlocks = 0;
+    int numberOfUnprotectedLoopBlocks = 0;
+    int numberOfNonHashableBlocks = 0;
+    int numberOfUnprotectedDataDependentBlocks = 0;
 
     int numberOfSensitivePaths = 0;
     int numberOfProtectedPaths = 0;
@@ -38,8 +40,21 @@ private:
     int numberOfProtectedFunctions = 0;
     int numberOfNonHashableInstructions = 0;
 
+    using BasicBlocksSet = std::unordered_set<llvm::BasicBlock*>;
+    BasicBlocksSet m_protectedBlocks;
+    BasicBlocksSet m_unprotectedLoopBlocks;
+    BasicBlocksSet m_nonHashableBlocks;
+
+private:
+    void dumpBlocks();
 
 public:
+    void addProtectedBlock(llvm::BasicBlock* B);
+    void addShortRangeOHProtectedBlock(llvm::BasicBlock* B);
+    void addUnprotectedLoopBlock(llvm::BasicBlock* B);
+    void addNonHashableBlock(llvm::BasicBlock* B);
+    void eraseFromUnprotectedBlocks(llvm::BasicBlock* B);
+
     void addNumberOfImplicitlyProtectedInstructions(int);
     void addNumberOfProtectedInstructions(int);
     void addNumberOfProtectedArguments(int);
@@ -57,10 +72,12 @@ public:
     void addNumberOfShortRangeProtectedGuardInstructions(int);
     void addNumberOfShortRangeProtectedGuardArguments(int);
 
-    void addNumberOfProtectedBlocks(int);
     void addNumberOfSensitiveBlocks(int);
+    void addNumberOfProtectedBlocks(int);
     void addNumberOfShortRangeProtectedBlocks(int);
-    void addNumberOfShortRangeSkippedLoopBlocks(int);
+    void addNumberOfUnprotectedLoopBlocks(int);
+    void addNumberOfNonHashableBlocks(int);
+    void addNumberOfUnprotectedDataDependentBlocks(int);
 
     void addNumberOfSensitiveFunctions(int);
     void addNumberOfProtectedFunctions(int);

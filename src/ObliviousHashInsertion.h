@@ -135,8 +135,6 @@ private:
   // argument reachable instructions
   std::unordered_map<llvm::Function*, InstructionSet> m_argument_reachable_instructions;
 
-  BasicBlocksSet m_protectedBlocks;
-  BasicBlocksSet m_skippedBlocks;
   std::unordered_set<llvm::Function*> m_soft_asserts;
 };
 }
