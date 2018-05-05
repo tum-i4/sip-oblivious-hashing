@@ -134,7 +134,5 @@ private:
   std::unordered_map<llvm::Function*, FunctionOHPaths::OHPath> m_function_path;
   // argument reachable instructions
   std::unordered_map<llvm::Function*, InstructionSet> m_argument_reachable_instructions;
-
-  std::unordered_set<llvm::Function*> m_soft_asserts;
 };
 }

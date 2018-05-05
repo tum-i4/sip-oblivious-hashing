@@ -12,7 +12,7 @@ void response() {
 
 void assert(long long* hash, long long expected) {
 	//if(DEBUG)
-    printf("\tAssert: %lld==%lld\n", *hash, expected);
+    //printf("\tAssert: %lld==%lld\n", *hash, expected);
 	if(*hash != expected){
 		void* callstack[128];
 		int i, frames = backtrace(callstack, 128);
@@ -30,12 +30,6 @@ void assert(long long* hash, long long expected) {
 		printf("%s\n",strs[1]);
 	}*/
 
-}
-
-void soft_assert(long long* hash, long long expected) {
-    if (*hash != 0) {
-        assert(hash, expected);
-    }
 }
 
 void hash1(long long *hashVariable, long long value) {

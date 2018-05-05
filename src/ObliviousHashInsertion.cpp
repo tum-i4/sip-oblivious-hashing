@@ -109,9 +109,7 @@ public:
                              const FunctionOHPaths::OHPath& path,
                              llvm::Function* F,
                              llvm::Function* assert_F,
-                             bool is_soft_assert,
                              llvm::Function* assert,
-                             llvm::Function* soft_assert,
                              llvm::Function* hashFunc1,
                              llvm::Function* hashFunc2);
 
@@ -141,9 +139,7 @@ private:
     const FunctionOHPaths::OHPath& m_path;
     llvm::Function* m_F;
     llvm::Function* m_assertF;
-    bool m_isSoftAssert;
     llvm::Function* m_assert;
-    llvm::Function* m_softAssert;
     llvm::Function* m_hashFunc1;
     llvm::Function* m_hashFunc2;
     llvm::Function* m_pathF;
@@ -154,18 +150,14 @@ FunctionExtractionHelper::FunctionExtractionHelper(Slicer& slicer,
                                                    const FunctionOHPaths::OHPath& path,
                                                    llvm::Function* F,
                                                    llvm::Function* assert_F,
-                                                   bool is_soft_assert,
                                                    llvm::Function* assert,
-                                                   llvm::Function* soft_assert,
                                                    llvm::Function* hashF1,
                                                    llvm::Function* hashF2)
     : m_slicer(slicer)
     , m_path(path)
     , m_F(F)
     , m_assertF(assert_F)
-    , m_isSoftAssert(is_soft_assert)
     , m_assert(assert)
-    , m_softAssert(soft_assert)
     , m_hashFunc1(hashF1)
     , m_hashFunc2(hashF2)
     , m_pathF(nullptr)
@@ -259,17 +251,7 @@ void FunctionExtractionHelper::replaceUniqueAssertCall(llvm::CallInst* callInst)
     // assertion call looks like following
     // %0 = load i64, i64* @global
     // call void @assert(i64 %0, i64 placeholder)
-    if (m_isSoftAssert) {
-        llvm::LLVMContext &Ctx = callInst->getModule()->getContext();
-        llvm::IRBuilder<> builder(callInst);
-        builder.SetInsertPoint(callInst->getParent(), builder.GetInsertPoint());
-
-        callInst->mutateFunctionType(m_softAssert->getFunctionType());
-        callInst->setArgOperand(2, nullptr);
-        callInst->setCalledFunction(m_softAssert);
-    } else {
-        callInst->setCalledFunction(m_assert);
-    }
+    callInst->setCalledFunction(m_assert);
     llvm::LoadInst* global_load = llvm::dyn_cast<llvm::LoadInst>(callInst->getArgOperand(0));
     callInst->setArgOperand(0, global_load->getPointerOperand());
     auto pos = m_valueMap.find(global_load);
@@ -1057,14 +1039,11 @@ void ObliviousHashInsertionPass::extract_path_functions()
     for (const auto& F_asserts : m_path_assertions) {
         //llvm::dbgs() << "F: " << F_asserts.first->getName() << "\n";
         for (const auto& F_assert : F_asserts.second) {
-            bool is_soft_assert = (m_soft_asserts.find(F_assert) != m_soft_asserts.end());
             FunctionExtractionHelper pathExtractor(*m_slicer,
                                                    m_function_path[F_assert],
                                                    F_asserts.first,
                                                    F_assert,
-                                                   is_soft_assert,
                                                    assert,
-                                                   soft_assert,
                                                    hashFunc1,
                                                    hashFunc2);
             pathExtractor.extractFunction();
@@ -1117,9 +1096,6 @@ bool ObliviousHashInsertionPass::process_path_block(llvm::Function* F, llvm::Bas
         const std::string& assert_name = "assert_" + get_path_function_name(F->getName(), path_num);
         llvm::Function* path_assert = get_assert_function_with_name(F->getParent(), assert_name);
         m_path_assertions[F].push_back(path_assert);
-        if (is_loop_path) {
-            m_soft_asserts.insert(path_assert);
-        }
         insertAssert(I, hash_value, true, path_assert);
     }
     modified ? stats.addShortRangeOHProtectedBlock(B)
