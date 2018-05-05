@@ -83,7 +83,9 @@ void OHStats::addShortRangeProtectedInstruction(llvm::Instruction* I)
     if (m_shortRangeProtectedInstructions.insert(I).second) {
         numberOfShortRangeProtectedInstructions += 1;
     }
-    m_unprotectedArgumentReachableInstructions.erase(I);
+    if (m_unprotectedArgumentReachableInstructions.erase(I)) {
+        numberOfUnprotectedArgumentReachableInstructions += -1;
+    }
 }
 
 void OHStats::addDataDependentInstruction(llvm::Instruction* I)
@@ -91,19 +93,26 @@ void OHStats::addDataDependentInstruction(llvm::Instruction* I)
     if (m_dataDependentInstructions.insert(I).second) {
         numberOfDataDependentInstructions += 1;
     }
+    assert(m_unprotectedArgumentReachableInstructions.find(I) == m_unprotectedArgumentReachableInstructions.end());
 }
 
 void OHStats::addNonHashableInstruction(llvm::Instruction* I)
 {
-    m_nonHashableInstructions.insert(I);
+    if (m_nonHashableInstructions.insert(I).second) {
+        numberOfNonHashableInstructions += 1;
+    }
+    assert(m_unprotectedArgumentReachableInstructions.find(I) == m_unprotectedArgumentReachableInstructions.end());
 }
 
 void OHStats::addUnprotectedArgumentReachableInstruction(llvm::Instruction* I)
 {
     // if I is protected by global OH this function won't get called for it.
     if (m_shortRangeProtectedInstructions.find(I) == m_shortRangeProtectedInstructions.end()) {
-        m_unprotectedArgumentReachableInstructions.insert(I);
+        if (m_unprotectedArgumentReachableInstructions.insert(I).second) {
+            numberOfUnprotectedArgumentReachableInstructions += 1;
+        }
     }
+    assert(m_dataDependentInstructions.find(I) == m_dataDependentInstructions.end());
 }
 
 void OHStats::eraseFromUnprotectedBlocks(llvm::BasicBlock* B)
@@ -147,10 +156,10 @@ void OHStats::addNumberOfShortRangeImplicitlyProtectedInstructions(int value)
 	numberOfShortRangeImplicitlyProtectedInstructions += value;
 }
 
-void OHStats::addNumberOfShortRangeProtectedInstructions(int value)
-{
-	numberOfShortRangeProtectedInstructions += value;
-}
+//void OHStats::addNumberOfShortRangeProtectedInstructions(int value)
+//{
+//	numberOfShortRangeProtectedInstructions += value;
+//}
 
 void OHStats::addNumberOfShortRangeProtectedArguments(int value)
 {
@@ -227,15 +236,15 @@ void OHStats::addNumberOfProtectedPaths(int value)
     numberOfProtectedPaths += value;
 }
 
-void OHStats::addNumberOfNonHashableInstructions(int value)
-{
-    numberOfNonHashableInstructions += value;
-}
-
-void OHStats::addNumberOfUnprotectedLoopInstructions(int value)
-{
-    numberOfUnprotectedLoopInstructions += value;
-}
+//void OHStats::addNumberOfNonHashableInstructions(int value)
+//{
+//    numberOfNonHashableInstructions += value;
+//}
+//
+//void OHStats::addNumberOfUnprotectedLoopInstructions(int value)
+//{
+//    numberOfUnprotectedLoopInstructions += value;
+//}
 
 void OHStats::addNumberOfUnprotectedInputDependentInstructions(int value)
 {
@@ -281,15 +290,9 @@ void OHStats::dumpJson(std::string filePath){
     j["numberOfProtectedFunctions"] = numberOfProtectedFunctions;
     j["numberOfSensitivePaths"] = numberOfSensitivePaths;
     j["numberOfProtectedPaths"] = numberOfProtectedPaths;
-    if (numberOfNonHashableInstructions == 0) {
-        numberOfNonHashableInstructions = m_nonHashableInstructions.size();
-    }
     j["numberOfNonHashableInstructions"] = numberOfNonHashableInstructions;
     j["numberOfUnprotectedLoopInstructions"] = numberOfUnprotectedLoopInstructions;
     j["numberOfDataDependentInstructions"] = numberOfDataDependentInstructions;
-    if (numberOfUnprotectedArgumentReachableInstructions == 0) {
-        numberOfUnprotectedArgumentReachableInstructions = m_unprotectedArgumentReachableInstructions.size();
-    }
     j["numberOfUnprotectedArgumentReachableInstructions"] = numberOfUnprotectedArgumentReachableInstructions;
     j["numberOfUnprotectedInputDependentInstructions"] = numberOfUnprotectedInputDependentInstructions;
 

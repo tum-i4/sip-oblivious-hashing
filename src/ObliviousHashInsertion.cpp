@@ -44,15 +44,14 @@ namespace oh {
 namespace {
 unsigned get_random(unsigned range) { return rand() % range; }
 
-bool skipInstruction(llvm::Instruction& I,
-                     const input_dependency::InputDependencyAnalysisInterface::InputDepResType& F_input_dependency_info)
+bool skipInstruction(llvm::Instruction& I)
 {
-    if (auto phi = llvm::dyn_cast<llvm::PHINode>(&I)) {
-        return true;
-    }
+//    if (auto phi = llvm::dyn_cast<llvm::PHINode>(&I)) {
+//        return true;
+//    }
     if (auto callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
         auto calledF = callInst->getCalledFunction();
-        if (calledF && (calledF->getName() == "assert" || calledF->getName() == "soft_assert"
+        if (calledF && (calledF->getName() == "assert" 
             || calledF->getName() == "hash1" || calledF->getName() == "hash2")) {
             return true;
         }
@@ -976,15 +975,14 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
     entry_block->getInstList().insertAfter(alloca_pos, local_store);
 
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
-    const auto& skip_instruction_pred = [this, &local_hash, &local_store, &F_input_dependency_info, &argument_reachable_instr]
+    const auto& skip_instruction_pred = [this, &local_hash, &local_store, &argument_reachable_instr]
                                         (llvm::Instruction* instr)
                                          {
                                             if (argument_reachable_instr.find(instr) != argument_reachable_instr.end()) {
                                                 stats.addUnprotectedArgumentReachableInstruction(instr);
                                                 return true;
                                             }
-                                            return instr == local_hash
-                                                || instr == local_store;
+                                            return instr == local_hash || instr == local_store;
                                          };
 
 
@@ -1059,7 +1057,7 @@ bool ObliviousHashInsertionPass::can_instrument_instruction(llvm::Function* F,
                                                             const SkipFunctionsPred& skipInstructionPred)
 {
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
-    if (skipInstruction(*I, F_input_dependency_info) || skipInstructionPred(I)) {
+    if (skipInstruction(*I) || skipInstructionPred(I)) {
         return false;
     }
     if (hasSkipTag(*I)) {

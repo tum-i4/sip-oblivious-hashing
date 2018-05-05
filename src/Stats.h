@@ -86,7 +86,7 @@ public:
     void addNumberOfProtectedGuardArguments(int);
 
     void addNumberOfShortRangeImplicitlyProtectedInstructions(int);
-    void addNumberOfShortRangeProtectedInstructions(int);
+    //void addNumberOfShortRangeProtectedInstructions(int);
     void addNumberOfShortRangeProtectedArguments(int);
     void addNumberOfShortRangeHashCalls(int);
     void addNumberOfShortRangeAssertCalls(int);
@@ -104,8 +104,8 @@ public:
     void addNumberOfProtectedFunctions(int);
     void addNumberOfSensitivePaths(int);
     void addNumberOfProtectedPaths(int);
-    void addNumberOfNonHashableInstructions(int);
-    void addNumberOfUnprotectedLoopInstructions(int);
+    //void addNumberOfNonHashableInstructions(int);
+    //void addNumberOfUnprotectedLoopInstructions(int);
     void addNumberOfUnprotectedInputDependentInstructions(int);
 
     void dumpJson(std::string fileName);
