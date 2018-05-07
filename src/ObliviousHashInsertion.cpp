@@ -199,6 +199,9 @@ void FunctionExtractionHelper::createPathBlocks()
             llvm::BasicBlock* block = llvm::BasicBlock::Create(m_pathF->getParent()->getContext(), path_B->getName(), m_pathF);
             m_valueMap.insert(std::make_pair(path_B, llvm::WeakVH(block)));
         }
+        if (path_B == m_path.back()) {
+            break;
+        }
         auto path_term = path_B->getTerminator();
         if (!path_term) {
             continue;
@@ -301,9 +304,6 @@ void FunctionExtractionHelper::removeArgumentReachableInstruction(llvm::Instruct
     if (!inst) {
         return;
     }
-    if (!FunctionOHPaths::pathContainsBlock(m_path, inst->getParent())) {
-        return;
-    }
     auto user_it = inst->user_begin();
     while (user_it != inst->user_end()) {
         auto* user_inst = llvm::dyn_cast<llvm::Instruction>(*user_it);
@@ -335,6 +335,13 @@ void FunctionExtractionHelper::adjustBlockTerminators()
         }
         auto path_b = llvm::dyn_cast<llvm::BasicBlock>(m_valueMap[&block]);
         auto path_term = path_b->getTerminator();
+        if (&block == m_path.back()) {
+            if (path_term) {
+                path_term->eraseFromParent();
+            }
+            path_b->getInstList().push_back(llvm::BranchInst::Create(exit_block));
+            continue;
+        }
         if (path_term) {
             for (unsigned i = 0; i < path_term->getNumSuccessors(); ++i) {
                 m_valueMap.insert(std::make_pair(path_term->getSuccessor(i), llvm::WeakVH(exit_block)));
