@@ -883,7 +883,6 @@ bool ObliviousHashInsertionPass::skip_function(llvm::Function& F) const
 
 bool ObliviousHashInsertionPass::process_function(llvm::Function* F)
 {
-
     llvm::dbgs() << " Processing function:" << F->getName() << "\n";
     stats.addNumberOfSensitiveBlocks(F->getBasicBlockList().size());
     if (shortRangeOH) {
@@ -1064,18 +1063,26 @@ bool ObliviousHashInsertionPass::can_instrument_instruction(llvm::Function* F,
                                                             const SkipFunctionsPred& skipInstructionPred)
 {
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
-    if (skipInstruction(*I) || skipInstructionPred(I)) {
+    if (F_input_dependency_info->isDataDependent(I)) {
+        stats.addDataDependentInstruction(I);
+        return false;
+    }
+    if (F_input_dependency_info->isControlDependent(I)
+        && !F_input_dependency_info->isInputDependentBlock(I->getParent())) {
+        // control dependent instruction which got its dependency outside of this block
+        // try to fix issue with 2048 combine left
+        // TODO: discuss for final decision
+        stats.addNumberOfUnprotectedInputDependentInstructions(1);
         return false;
     }
     if (hasSkipTag(*I)) {
         return false;
     }
-    if (!F_input_dependency_info->isInputDependent(I)
-        && !F_input_dependency_info->isInputIndependent(I)) {
+    if (skipInstruction(*I) || skipInstructionPred(I)) {
         return false;
     }
-    if (F_input_dependency_info->isDataDependent(I)) {
-        stats.addDataDependentInstruction(I);
+    if (!F_input_dependency_info->isInputDependent(I)
+        && !F_input_dependency_info->isInputIndependent(I)) {
         return false;
     }
     return true;
