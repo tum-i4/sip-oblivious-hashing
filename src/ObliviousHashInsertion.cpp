@@ -168,10 +168,12 @@ void FunctionExtractionHelper::extractFunction()
     m_slicer.slice(m_F, m_assertF->getName());
     const Slicer::Slice& slice = m_slicer.getSlice();
     // TODO: for debug only. Remove later
-    // llvm::dbgs() << "Refine path function of " << m_F->getName() << "  " << m_assertF->getName() << "\n";
-    // for (auto I : slice) {
-    //     llvm::dbgs() << *I << "\n";
-    // }
+    //if (m_F->getName() == "update") {
+    //     llvm::dbgs() << "Refine path function of " << m_F->getName() << "  " << m_assertF->getName() << "\n";
+    //    // for (auto I : slice) {
+    //    //     llvm::dbgs() << *I << "\n";
+    //    // }
+    //}
 
     llvm::Module* M = m_F->getParent();
     createPathFunction();
@@ -188,7 +190,9 @@ void FunctionExtractionHelper::extractFunction()
     llvm::remapInstructionsInBlocks(extracted_blocks, m_valueMap);
     // TODO: for debug only. Remove later
     //llvm::dbgs() << "After refining and remap the slice\n";
-    //m_pathF->dump();
+    //if (m_F->getName() == "update") {
+    //    m_pathF->dump();
+    //}
     m_assertF->eraseFromParent();
 }
 
@@ -588,6 +592,13 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I,
                                                 bool is_local_hash)
 {
     bool hashInserted = false;
+    if (is_local_hash) {
+        if (m_shortRangeHashedInstructions.find(&I) != m_shortRangeHashedInstructions.end()) {
+            return false;
+        }
+    } else if (m_globalHashedInstructions.find(&I) != m_globalHashedInstructions.end()) {
+        return false;
+    }
     bool isCallGuard = false;
     int protectedArguments = 0;
     if (auto* cmp = llvm::dyn_cast<llvm::CmpInst>(&I)) {
@@ -623,9 +634,17 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I,
         isCallGuard = isInstAGuard(I);
     } else if (auto* getElemPtr = llvm::dyn_cast<llvm::GetElementPtrInst>(&I)) {
         hashInserted = instrumentGetElementPtrInst(getElemPtr, hash_to_update);
+    } else if (!llvm::dyn_cast<llvm::PHINode>(&I)) {
+        for (auto op = I.op_begin(); op != I.op_end(); ++op) {
+            auto* val = llvm::dyn_cast<llvm::Value>(&*op);
+            if (val) {
+                hashInserted |= insertHash(I, val, hash_to_update, true);
+            }
+        }
     }
 
     if (hashInserted) {
+        is_local_hash ? m_shortRangeHashedInstructions.insert(&I) : m_globalHashedInstructions.insert(&I);
         is_local_hash ? stats.addNumberOfShortRangeHashCalls(1) : stats.addNumberOfHashCalls(1);
         is_local_hash ? stats.addShortRangeProtectedInstruction(&I) : stats.addNumberOfProtectedInstructions(1);
         if (isCallGuard) {
@@ -960,6 +979,7 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
                                               FunctionOHPaths::OHPath& path,
                                               unsigned path_num)
 {
+    m_shortRangeHashedInstructions.clear();
     bool modified = false;
     llvm::dbgs() << "Processing path: ";
     dump_path(path);
@@ -1067,14 +1087,14 @@ bool ObliviousHashInsertionPass::can_instrument_instruction(llvm::Function* F,
         stats.addDataDependentInstruction(I);
         return false;
     }
-    if (F_input_dependency_info->isControlDependent(I)
-        && !F_input_dependency_info->isInputDependentBlock(I->getParent())) {
-        // control dependent instruction which got its dependency outside of this block
-        // try to fix issue with 2048 combine left
-        // TODO: discuss for final decision
-        stats.addNumberOfUnprotectedInputDependentInstructions(1);
-        return false;
-    }
+    //if (F_input_dependency_info->isControlDependent(I)
+    //    && !F_input_dependency_info->isInputDependentBlock(I->getParent())) {
+    //    // control dependent instruction which got its dependency outside of this block
+    //    // try to fix issue with 2048 combine left
+    //    // TODO: discuss for final decision
+    //    stats.addNumberOfUnprotectedInputDependentInstructions(1);
+    //    return false;
+    //}
     if (hasSkipTag(*I)) {
         return false;
     }
