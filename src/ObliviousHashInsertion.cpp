@@ -307,6 +307,9 @@ void FunctionExtractionHelper::removeArgumentReachableInstruction(llvm::Instruct
 
 void FunctionExtractionHelper::adjustBlockTerminators()
 {
+    if (m_F->getName() == "sigsetup") {
+        llvm::dbgs() << "Stop\n";
+    }
     llvm::LLVMContext& Ctx = m_pathF->getParent()->getContext();
     llvm::BasicBlock* exit_block = llvm::BasicBlock::Create(Ctx, "exit", m_pathF);
     llvm::ReturnInst::Create(Ctx, exit_block);
@@ -332,11 +335,15 @@ void FunctionExtractionHelper::adjustBlockTerminators()
             auto term = block.getTerminator();
             llvm::BasicBlock* dest = nullptr;
             for (unsigned i = 0; i < term->getNumSuccessors(); ++i) {
-                dest = term->getSuccessor(i);
-                if (m_valueMap.find(dest) != m_valueMap.end()) {
+                llvm::BasicBlock* tmp_dest = term->getSuccessor(i);
+                if (m_valueMap.find(tmp_dest) != m_valueMap.end()
+                        && FunctionOHPaths::pathContainsBlock(m_path, tmp_dest)) {
+                    dest = tmp_dest;
                     break;
                 }
-                dest = nullptr;
+                if (m_valueMap.find(tmp_dest) != m_valueMap.end()) {
+                    dest = tmp_dest;
+                }
             }
             if (dest) {
                 path_b->getInstList().push_back(llvm::BranchInst::Create(dest));
