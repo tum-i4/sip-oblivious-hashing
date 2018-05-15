@@ -1,5 +1,6 @@
 #include "ObliviousHashInsertion.h"
 #include "FunctionCallSitesInformation.h"
+#include "FunctionRunner.h"
 #include "Utils.h"
 
 #include "llvm/Analysis/LoopInfo.h"
@@ -145,12 +146,13 @@ void FunctionExtractionHelper::extractFunction()
 {
     m_slicer.slice(m_F, m_assertF->getName());
     const Slicer::Slice& slice = m_slicer.getSlice();
+    m_F->dump();
     // TODO: for debug only. Remove later
     //if (m_F->getName() == "update") {
-    //     llvm::dbgs() << "Refine path function of " << m_F->getName() << "  " << m_assertF->getName() << "\n";
-    //    // for (auto I : slice) {
-    //    //     llvm::dbgs() << *I << "\n";
-    //    // }
+         //llvm::dbgs() << "Refine path function of " << m_F->getName() << "  " << m_assertF->getName() << "\n";
+         //for (auto I : slice) {
+         //    llvm::dbgs() << *I << "\n";
+         //}
     //}
 
     llvm::Module* M = m_F->getParent();
@@ -748,7 +750,7 @@ bool ObliviousHashInsertionPass::instrumentCmpInst(llvm::CmpInst* I, llvm::Value
     return hashInserted;
 }
 
-void ObliviousHashInsertionPass::insertAssert(llvm::Instruction &I,
+llvm::Instruction* ObliviousHashInsertionPass::insertAssert(llvm::Instruction &I,
                                               llvm::Value* hash_to_assert,
                                               bool short_range_assert,
                                               llvm::Constant* assert_F)
@@ -756,28 +758,25 @@ void ObliviousHashInsertionPass::insertAssert(llvm::Instruction &I,
     // assert for cmp instruction should have been added
     if (llvm::CmpInst::classof(&I)) {
         // log the last value which contains hash for this cmp instruction
-        // builder.SetInsertPoint(I.getParent(), ++builder.GetInsertPoint());
-        doInsertAssert(I, hash_to_assert, short_range_assert, assert_F);
-        return;
+        return doInsertAssert(I, hash_to_assert, short_range_assert, assert_F);
     }
     if (auto callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
         auto called_function = callInst->getCalledFunction();
         if (called_function != nullptr && !called_function->isIntrinsic() &&
                 called_function != hashFunc1 && called_function != hashFunc2) {
             // always insert assert before call instructions
-            doInsertAssert(I, hash_to_assert, short_range_assert, assert_F);
-            return;
+            return doInsertAssert(I, hash_to_assert, short_range_assert, assert_F);
         }
     }
     if (short_range_assert) {
-        doInsertAssert(I, hash_to_assert, true, assert_F);
+        return doInsertAssert(I, hash_to_assert, true, assert_F);
     } else if (get_random(2)) {
         // insert randomly
-        doInsertAssert(I, hash_to_assert, false, assert_F);
+        return doInsertAssert(I, hash_to_assert, false, assert_F);
     }
 }
 
-void ObliviousHashInsertionPass::doInsertAssert(llvm::Instruction &instr,
+llvm::Instruction* ObliviousHashInsertionPass::doInsertAssert(llvm::Instruction &instr,
                                                 llvm::Value* hash_value,
                                                 bool short_range_assert,
                                                 llvm::Constant* assert_F)
@@ -804,7 +803,7 @@ void ObliviousHashInsertionPass::doInsertAssert(llvm::Instruction &instr,
     short_range_assert ? stats.addNumberOfShortRangeAssertCalls(1) : stats.addNumberOfAssertCalls(1);
 
 
-    builder.CreateCall(assert_F, args);
+    return builder.CreateCall(assert_F, args);
 }
 
 void ObliviousHashInsertionPass::setup_guardMe_metadata()
@@ -928,29 +927,21 @@ bool ObliviousHashInsertionPass::process_function_with_global_oh(llvm::Function*
 
 void ObliviousHashInsertionPass::insert_calls_for_path_functions()
 {
-    llvm::FunctionType *function_type = llvm::FunctionType::get(llvm::Type::getVoidTy(m_M->getContext()),
-                                                                llvm::ArrayRef<llvm::Type*>(), false);
-    auto* path_functions_callee = llvm::dyn_cast<llvm::Function>(m_M->getOrInsertFunction(oh_path_functions_callee,
-                                                                                          function_type));
-    llvm::LLVMContext& Ctx = path_functions_callee->getContext();
-    llvm::BasicBlock* entry_block = llvm::BasicBlock::Create(Ctx,
-                                                             "entry",
-                                                             path_functions_callee);
-    llvm::IRBuilder<> builder(Ctx);
-    for (auto& path_F : m_path_functions) {
-        builder.SetInsertPoint(entry_block);
-        builder.CreateCall(path_F, llvm::ArrayRef<llvm::Value*>());
+    FunctionRunner runner(m_M);
+    // TODO: make this an option?
+    const std::string response_obj = "/home/anahitik/SIP/sip-oblivious-hashing/assertions/response.bc";
+    for (auto& path_F : m_path_function_assertion) {
+        int expected_hash = runner.run(path_F.first, {response_obj});
+        if (expected_hash == -1) {
+            llvm::dbgs() << "Failed expected hash value precomputation for " << path_F.first->getName() << "\n";
+        } else {
+            llvm::dbgs() << expected_hash << "\n";
+            llvm::ConstantInt *hash = (ConstantInt *)ConstantInt::get(Type::getInt64Ty(m_M->getContext()),
+                                                                                      APInt(64, expected_hash));
+            path_F.second->setArgOperand(1, hash);
+        }
+        path_F.first->eraseFromParent();
     }
-    llvm::ReturnInst::Create(Ctx, entry_block);
-
-    llvm::Function* mainF = m_M->getFunction("main");
-    if (!mainF) {
-        llvm::dbgs() << "No main function. Can not insert calls to extracted path functions\n";
-        return;
-    }
-    llvm::IRBuilder<> main_builder(mainF->getContext());
-    main_builder.SetInsertPoint(&*mainF->getEntryBlock().getFirstInsertionPt());
-    main_builder.CreateCall(path_functions_callee, llvm::ArrayRef<llvm::Value*>());
 }
 
 bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
@@ -1029,7 +1020,7 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
     if (can_insert_assertion && modified) {
         stats.addNumberOfProtectedPaths(1);
         if (m_path_assertions.find(F) != m_path_assertions.end() && !m_path_assertions[F].empty()) {
-            m_function_path.insert(std::make_pair(m_path_assertions[F].back(), path));
+            m_function_path.insert(std::make_pair(m_path_assertions[F].back()->getCalledFunction(), path));
         }
     }
     return modified;
@@ -1037,19 +1028,21 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
 
 void ObliviousHashInsertionPass::extract_path_functions()
 {
+    //m_slicer->resetDG(m_M);
     m_slicer.reset(new Slicer(m_M));
     for (const auto& F_asserts : m_path_assertions) {
         //llvm::dbgs() << "F: " << F_asserts.first->getName() << "\n";
         for (const auto& F_assert : F_asserts.second) {
+            llvm::Function* F = F_assert->getCalledFunction();
             FunctionExtractionHelper pathExtractor(*m_slicer,
-                                                   m_function_path[F_assert],
+                                                   m_function_path[F],
                                                    F_asserts.first,
-                                                   F_assert,
+                                                   F,
                                                    assert,
                                                    hashFunc1,
                                                    hashFunc2);
             pathExtractor.extractFunction();
-            m_path_functions.push_back(pathExtractor.getExtractedFunction());
+            m_path_function_assertion.insert(std::make_pair(pathExtractor.getExtractedFunction(), F_assert));
         }
     }
     // after extraction all path assertion functions will be deleted
@@ -1105,8 +1098,8 @@ bool ObliviousHashInsertionPass::process_path_block(llvm::Function* F, llvm::Bas
         }
         const std::string& assert_name = "assert_" + get_path_function_name(F->getName(), path_num);
         llvm::Function* path_assert = get_assert_function_with_name(F->getParent(), assert_name);
-        m_path_assertions[F].push_back(path_assert);
-        insertAssert(I, hash_value, true, path_assert);
+        llvm::Instruction* assert_instr = insertAssert(I, hash_value, true, path_assert);
+        m_path_assertions[F].push_back(llvm::dyn_cast<llvm::CallInst>(assert_instr));
     }
     modified ? stats.addShortRangeOHProtectedBlock(B)
              : stats.addNonHashableBlock(B);
