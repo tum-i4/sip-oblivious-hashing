@@ -146,7 +146,6 @@ void FunctionExtractionHelper::extractFunction()
 {
     m_slicer.slice(m_F, m_assertF->getName());
     const Slicer::Slice& slice = m_slicer.getSlice();
-    m_F->dump();
     // TODO: for debug only. Remove later
     //if (m_F->getName() == "update") {
          //llvm::dbgs() << "Refine path function of " << m_F->getName() << "  " << m_assertF->getName() << "\n";
