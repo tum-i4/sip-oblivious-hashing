@@ -61,6 +61,28 @@ bool skipInstruction(llvm::Instruction& I)
     return false;
 }
 
+bool isHashableInst(llvm::Instruction* I)
+{
+    if (auto* cmp = llvm::dyn_cast<llvm::CmpInst>(I)) {
+        return true;
+    } else if (llvm::ReturnInst::classof(I)) {
+        return true;
+    } else if (llvm::LoadInst::classof(I)) {
+        return true;
+    } else if (llvm::StoreInst::classof(I)) {
+        return true;
+    } else if (llvm::BinaryOperator::classof(I)) {
+        return true;
+    } else if (auto *call = llvm::dyn_cast<llvm::CallInst>(I)) {
+        return true;
+    } else if (auto* invoke = llvm::dyn_cast<llvm::InvokeInst>(I)) {
+        return true;
+    } else if (auto* getElemPtr = llvm::dyn_cast<llvm::GetElementPtrInst>(I)) {
+        return true;
+    }
+    return false;
+}
+
 llvm::Loop* get_outermost_loop(llvm::Loop* loop)
 {
     auto* parent_loop = loop;
