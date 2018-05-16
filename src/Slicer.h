@@ -46,8 +46,6 @@ public:
         return m_slice_id;
     }
 
-    void resetDG(llvm::Module* M);
-
     bool slice(llvm::Function* F, const std::string& criteria);
 
 private:
@@ -62,6 +60,7 @@ private:
     std::unique_ptr<dg::LLVMPointerAnalysis> m_PTA;
     std::unique_ptr<dg::analysis::rd::LLVMReachingDefinitions> m_RD;
     std::unique_ptr<dg::LLVMDependenceGraph> m_dg;
+    dg::LLVMSlicer m_slicer;
     Slice m_slice;
 }; // class Slicer
 

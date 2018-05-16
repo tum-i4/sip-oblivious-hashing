@@ -38,16 +38,6 @@ dg::LLVMDependenceGraph* Slicer::getDG(llvm::Function* F)
    return CFs[F];
 }
 
-void Slicer::resetDG(llvm::Module* M)
-{
-//    m_PTA.reset(new dg::LLVMPointerAnalysis(m_module));
-//    m_RD.reset(new dg::analysis::rd::LLVMReachingDefinitions(m_module, m_PTA.get()));
-    m_dg.reset(new dg::LLVMDependenceGraph());
-    m_dg->build(m_module, m_PTA.get());
-    computeEdges();
-    //buildDG();
-}
-
 bool Slicer::slice(llvm::Function* F, const std::string& criteria)
 {
     m_slice.clear();
@@ -63,9 +53,8 @@ bool Slicer::slice(llvm::Function* F, const std::string& criteria)
     // make sure for each slice call m_slice_id is unique
     ++m_slice_id;
 
-    dg::LLVMSlicer slicer;
     for (dg::LLVMNode *start : callsites) {
-        m_slice_id = slicer.mark(start, m_slice_id);
+        m_slice_id = m_slicer.mark(start, m_slice_id);
     }
 
     computeSlice(F);

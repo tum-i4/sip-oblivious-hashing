@@ -88,11 +88,11 @@ private:
                           llvm::Value* hash_value);
   bool instrumentGetElementPtrInst(llvm::GetElementPtrInst* getElemPtr, llvm::Value* hash_value);
   bool instrumentCmpInst(llvm::CmpInst* I, llvm::Value* hash_value);
-  llvm::Instruction* insertAssert(llvm::Instruction &I,
+  void insertAssert(llvm::Instruction &I,
                     llvm::Value* hash_value,
                     bool short_range_assert,
                     llvm::Constant* assert_F);
-  llvm::Instruction*  doInsertAssert(llvm::Instruction &I,
+  void doInsertAssert(llvm::Instruction &I,
                       llvm::Value* hash_value,
                       bool short_range_assert,
                       llvm::Constant* assert_F);
@@ -127,10 +127,10 @@ private:
   llvm::GlobalVariable *TempVariable;
   std::vector<unsigned> usedHashIndices;
   BasicBlocksSet m_processed_deterministic_blocks;
-  std::unordered_map<llvm::Function*, llvm::CallInst*> m_path_function_assertion;
+  std::vector<llvm::Function*> m_path_functions;
   // assertion function for paths for each function
-  std::unordered_map<llvm::Function*, std::vector<llvm::CallInst*>> m_path_assertions;
-  // path for each assert function
+  std::unordered_map<llvm::Function*, std::vector<llvm::Function*>> m_path_assertions;
+  // path for each assert
   std::unordered_map<llvm::Function*, FunctionOHPaths::OHPath> m_function_path;
   // argument reachable instructions
   std::unordered_map<llvm::Function*, InstructionSet> m_argument_reachable_instructions;
