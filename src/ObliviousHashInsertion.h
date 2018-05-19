@@ -25,6 +25,7 @@ class GlobalVariable;
 class Instruction;
 class Value;
 class LoopInfo;
+class MDNode;
 }
 
 namespace oh {
@@ -33,6 +34,21 @@ class FunctionCallSiteData;
 class OHPath;
 
 class ObliviousHashInsertionPass : public llvm::ModulePass {
+private:
+  using BasicBlocksSet = std::unordered_set<llvm::BasicBlock*>;
+  using InstructionSet = std::unordered_set<llvm::Instruction*>;
+  using SkipFunctionsPred = std::function<bool (llvm::Instruction* instr)>;
+
+public:
+    struct short_range_path_oh
+    {
+        FunctionOHPaths::OHPath path;
+        llvm::Function* path_assert;
+        llvm::Value* hash_variable;
+        bool is_loop_path;
+        llvm::Function* extracted_path_function;
+    };
+
 public:
   static char ID;
 
@@ -42,9 +58,6 @@ public:
   virtual void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
 
 private:
-  using BasicBlocksSet = std::unordered_set<llvm::BasicBlock*>;
-  using InstructionSet = std::unordered_set<llvm::Instruction*>;
-  using SkipFunctionsPred = std::function<bool (llvm::Instruction* instr)>;
   void setup_guardMe_metadata();
   void setup_used_analysis_results();
   void setup_functions();
@@ -60,22 +73,27 @@ private:
   void extract_path_functions();
   bool can_instrument_instruction(llvm::Function* F,
                                   llvm::Instruction* I,
-                                  const SkipFunctionsPred& skipInstructionPred);
+                                  const SkipFunctionsPred& skipInstructionPred,
+                                  InstructionSet& dataDepInstrs);
   bool process_path_block(llvm::Function* F, llvm::BasicBlock* B,
                           llvm::Value* hash_value, bool insert_assert,
                           const SkipFunctionsPred& skipInstructionPred,
                           bool& local_hash_updated,
-                          int path_num, bool is_loop_path);
+                          int path_num,
+                          InstructionSet& skipped_instructions);
   bool process_block(llvm::Function* F, llvm::BasicBlock* B,
                      bool insert_assert,
-                     const SkipFunctionsPred& skipInstructionPred);
+                     const SkipFunctionsPred& skipInstructionPred,
+                     InstructionSet& skipped_instructions);
   bool can_insert_short_range_assertion(llvm::Function* F,
                                         const FunctionOHPaths::OHPath& path);
   llvm::BasicBlock* get_path_exit_block(llvm::Function* F,
                                         const FunctionOHPaths::OHPath& path,
                                         bool& is_loop_path);
   const InstructionSet& get_argument_reachable_instructions(llvm::Function* F);
+  const InstructionSet& get_global_reachable_instructions(llvm::Function* F);
   void collect_argument_reachable_instructions(llvm::Function* F);
+  void collect_global_reachable_instructions(llvm::Function* F);
   bool can_insert_assertion_at_location(llvm::Function* F,
                                         llvm::BasicBlock* B,
                                         llvm::LoopInfo& LI);
@@ -122,20 +140,20 @@ private:
   llvm::Function *hashFunc1;
   llvm::Function *hashFunc2;
   llvm::Function *assert;
-  llvm::Function *soft_assert;
+  llvm::MDNode* assert_metadata;
   std::vector<llvm::GlobalVariable *> hashPtrs;
   llvm::GlobalVariable *TempVariable;
   std::vector<unsigned> usedHashIndices;
   BasicBlocksSet m_processed_deterministic_blocks;
-  std::vector<llvm::Function*> m_path_functions;
-  // assertion function for paths for each function
-  std::unordered_map<llvm::Function*, std::vector<llvm::Function*>> m_path_assertions;
-  // path for each assert
-  std::unordered_map<llvm::Function*, FunctionOHPaths::OHPath> m_function_path;
-  // argument reachable instructions
+
+  std::unordered_map<llvm::Function*, std::vector<short_range_path_oh>> m_function_oh_paths;
+        // It's more efficient to collect skipped instructions
+  std::unordered_map<llvm::Function*, InstructionSet> m_function_skipped_instructions;
   std::unordered_map<llvm::Function*, InstructionSet> m_argument_reachable_instructions;
+  std::unordered_map<llvm::Function*, InstructionSet> m_global_reachable_instructions;
 
   InstructionSet m_globalHashedInstructions;
   InstructionSet m_shortRangeHashedInstructions;
 };
+
 }

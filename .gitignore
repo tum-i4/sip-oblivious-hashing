@@ -1,5 +1,7 @@
 src/.*.swp
 
+build/
+tests/
 *.o
 *.s
 *.bc

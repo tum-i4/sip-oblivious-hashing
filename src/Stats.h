@@ -44,6 +44,7 @@ private:
     int numberOfUnprotectedLoopInstructions = 0;
     int numberOfDataDependentInstructions = 0;
     int numberOfUnprotectedArgumentReachableInstructions = 0;
+    int numberOfUnprotectedGlobalReachableInstructions = 0;
     int numberOfUnprotectedInputDependentInstructions = 0;
 
     using BasicBlocksSet = std::unordered_set<llvm::BasicBlock*>;
@@ -56,6 +57,7 @@ private:
     InstructionSet m_dataDependentInstructions;
     InstructionSet m_nonHashableInstructions;
     InstructionSet m_unprotectedArgumentReachableInstructions;
+    InstructionSet m_unprotectedGlobalReachableInstructions;
 
 private:
     void addUnprotectedLoopInstructions();
@@ -73,6 +75,7 @@ public:
     void addDataDependentInstruction(llvm::Instruction* I);
     void addNonHashableInstruction(llvm::Instruction* I);
     void addUnprotectedArgumentReachableInstruction(llvm::Instruction* I);
+    void addUnprotectedGlobalReachableInstruction(llvm::Instruction* I);
 
     void eraseFromUnprotectedBlocks(llvm::BasicBlock* B);
 

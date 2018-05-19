@@ -86,6 +86,9 @@ void OHStats::addShortRangeProtectedInstruction(llvm::Instruction* I)
     if (m_unprotectedArgumentReachableInstructions.erase(I)) {
         numberOfUnprotectedArgumentReachableInstructions += -1;
     }
+    if (m_unprotectedGlobalReachableInstructions.erase(I)) {
+        numberOfUnprotectedGlobalReachableInstructions += -1;
+    }
 }
 
 void OHStats::addDataDependentInstruction(llvm::Instruction* I)
@@ -113,6 +116,18 @@ void OHStats::addUnprotectedArgumentReachableInstruction(llvm::Instruction* I)
         }
     }
     assert(m_dataDependentInstructions.find(I) == m_dataDependentInstructions.end());
+}
+
+void OHStats::addUnprotectedGlobalReachableInstruction(llvm::Instruction* I)
+{
+    // if I is protected by global OH this function won't get called for it.
+    if (m_shortRangeProtectedInstructions.find(I) == m_shortRangeProtectedInstructions.end()) {
+        if (m_unprotectedGlobalReachableInstructions.insert(I).second) {
+            numberOfUnprotectedGlobalReachableInstructions += 1;
+        }
+    }
+    assert(m_dataDependentInstructions.find(I) == m_dataDependentInstructions.end());
+
 }
 
 void OHStats::eraseFromUnprotectedBlocks(llvm::BasicBlock* B)
@@ -294,6 +309,7 @@ void OHStats::dumpJson(std::string filePath){
     j["numberOfUnprotectedLoopInstructions"] = numberOfUnprotectedLoopInstructions;
     j["numberOfDataDependentInstructions"] = numberOfDataDependentInstructions;
     j["numberOfUnprotectedArgumentReachableInstructions"] = numberOfUnprotectedArgumentReachableInstructions;
+    j["numberOfUnprotectedGlobalReachableInstructions"] = numberOfUnprotectedGlobalReachableInstructions;
     j["numberOfUnprotectedInputDependentInstructions"] = numberOfUnprotectedInputDependentInstructions;
 
 	std::cout << j.dump(4) << std::endl;
