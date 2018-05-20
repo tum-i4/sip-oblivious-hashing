@@ -61,6 +61,49 @@ bool skipInstruction(llvm::Instruction& I)
     return false;
 }
 
+bool isHashableFunction(llvm::Function* called_function)
+{
+    if (!called_function) {
+        return true;
+    }
+    // TODO: add more functions
+    return called_function->getName() != "malloc";
+}
+
+bool skip_short_range_instruction(llvm::Instruction* instr,
+                                  const std::unordered_set<llvm::Instruction*>& argument_reachable_instr,
+                                  const std::unordered_set<llvm::Instruction*>& global_reachable_instr,
+                                  std::unordered_set<llvm::Instruction*>& skipped_instructions,
+                                  OHStats& stats)
+{
+    if (argument_reachable_instr.find(instr) != argument_reachable_instr.end()) {
+        stats.addUnprotectedArgumentReachableInstruction(instr);
+        skipped_instructions.insert(instr);
+        return true;
+    } else if (global_reachable_instr.find(instr) != global_reachable_instr.end()) {
+        skipped_instructions.insert(instr);
+        return true;
+    } else if (skipped_instructions.find(instr) != skipped_instructions.end()) {
+        // TODO: which section of stats add this?
+        return true;
+    }
+    for (auto op = instr->op_begin(); op != instr->op_end(); ++op) {
+        auto* op_instr = llvm::dyn_cast<llvm::Instruction>(&*op);
+        if (!op_instr) {
+            continue;
+        }
+        if (llvm::dyn_cast<llvm::AllocaInst>(op_instr)) {
+            continue;
+        }
+        if (skipped_instructions.find(op_instr) != skipped_instructions.end()) {
+            skipped_instructions.insert(instr);
+            // TODO: which section of stats add this?
+            return true;
+        }
+    }
+    return false;
+}
+
 llvm::Loop* get_outermost_loop(llvm::Loop* loop)
 {
     auto* parent_loop = loop;
@@ -362,7 +405,6 @@ void FunctionExtractionHelper::createMissingOperands(llvm::Instruction* instr)
         if (!llvm::dyn_cast<llvm::Instruction>(val)) {
             continue;
         }
-        llvm::dbgs() << *val << " " << *val->getType() << "\n";
         auto* type = val->getType();
         if (auto* ptrTy = llvm::dyn_cast<llvm::PointerType>(type)) {
             type = ptrTy->getElementType();
@@ -651,6 +693,10 @@ bool ObliviousHashInsertionPass::insertHashBuilder(llvm::IRBuilder<> &builder,
     llvm::LLVMContext &Ctx = builder.getContext();
     llvm::Value *cast = nullptr;
     llvm::Value *load = nullptr;
+    if (llvm::dyn_cast<llvm::ConstantPointerNull>(v)) {
+        llvm::dbgs() << "Null pointer skipped:" << *v << "\n";
+        return false;
+    }
     if (v->getType()->isPointerTy()) {
         llvm::Type *ptrType = v->getType()->getPointerElementType();
         if (!ptrType->isIntegerTy() && !ptrType->isFloatingPointTy()) {
@@ -812,7 +858,6 @@ bool ObliviousHashInsertionPass::instrumentCallInst(CallInstTy* call,
             called_function == hashFunc1 || called_function == hashFunc2) {
         return false;
     }
-
     for (int i = 0; i < call->getNumArgOperands(); ++i) {
         auto* operand = call->getArgOperand(i);
         bool argHashed = false;
@@ -844,7 +889,14 @@ bool ObliviousHashInsertionPass::instrumentCallInst(CallInstTy* call,
             llvm::dbgs() << "Can't handle this operand " << *operand
                          << " of the call " << *call << "\n";
         }
+        auto* operand_inst = llvm::dyn_cast<llvm::Instruction>(operand);
+        if (operand_inst && m_input_dependency_info->isDataDependent(operand_inst)) {
+            m_function_skipped_instructions[call->getParent()->getParent()].insert(call);
+        }
         hashInserted = hashInserted || argHashed;
+    }
+    if (!isHashableFunction(called_function)) {
+        m_function_skipped_instructions[call->getParent()->getParent()].insert(call);
     }
     return hashInserted;
 }
@@ -1164,15 +1216,14 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
                                          &skipped_instructions]
                                         (llvm::Instruction* instr)
                                          {
-                                            if (argument_reachable_instr.find(instr) != argument_reachable_instr.end()) {
-                                                stats.addUnprotectedArgumentReachableInstruction(instr);
-                                                skipped_instructions.insert(instr);
-                                                return true;
-                                            } else if (global_reachable_instr.find(instr) != global_reachable_instr.end()) {
-                                                skipped_instructions.insert(instr);
-                                                return true;
-                                            }
-                                            return instr == local_hash || instr == local_store;
+                                             if (instr == local_hash || instr == local_store) {
+                                                 return true;
+                                             }
+                                             return skip_short_range_instruction(instr,
+                                                                                 argument_reachable_instr,
+                                                                                 global_reachable_instr,
+                                                                                 skipped_instructions,
+                                                                                 stats);
                                          };
 
 
@@ -1348,6 +1399,7 @@ bool ObliviousHashInsertionPass::can_insert_short_range_assertion(llvm::Function
     for (auto& B : path) {
         if (auto* B_loop = LI.getLoopFor(B)) {
             if (F_input_dependency_info->isInputDependentBlock(B)
+                    || F_input_dependency_info->isDataDependent(B->getTerminator())
                     || argument_reachable_instr.find(B->getTerminator()) != argument_reachable_instr.end()
                     || global_reachable_instr.find(B->getTerminator()) != global_reachable_instr.end()) {
                 return false;
@@ -1404,6 +1456,7 @@ void ObliviousHashInsertionPass::collect_argument_reachable_instructions(llvm::F
     InstructionSet instructions;
     dg::LLVMDependenceGraph* F_dg = m_slicer->getDG(F);
     if (!F_dg) {
+        llvm::dbgs() << "No dependence graph for function " << F->getName() << "\n";
         m_argument_reachable_instructions.insert(std::make_pair(F, instructions));
         return;
     }
