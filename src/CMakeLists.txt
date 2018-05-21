@@ -7,6 +7,7 @@ add_library(oblivious-hashing MODULE
     FunctionCallSitesInformation.cpp
     FunctionOHPaths.cpp
     Slicer.cpp
+    MemoryDefinitionBlocks.cpp
 	)
 
 #Use C++ 11 to compile our pass(i.e., supply - std = c++ 11).

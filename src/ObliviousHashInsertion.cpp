@@ -6,6 +6,7 @@
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/AssumptionCache.h"
 #include "llvm/Analysis/BasicAliasAnalysis.h"
+#include "llvm/Transforms/Utils/MemorySSA.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Dominators.h"
@@ -70,21 +71,10 @@ bool isHashableFunction(llvm::Function* called_function)
     return called_function->getName() != "malloc";
 }
 
-bool skip_short_range_instruction(llvm::Instruction* instr,
-                                  const std::unordered_set<llvm::Instruction*>& argument_reachable_instr,
-                                  const std::unordered_set<llvm::Instruction*>& global_reachable_instr,
-                                  std::unordered_set<llvm::Instruction*>& skipped_instructions,
-                                  OHStats& stats)
+bool shouldSkipInstruction(llvm::Instruction* instr,
+                           std::unordered_set<llvm::Instruction*>& skipped_instructions)
 {
-    if (argument_reachable_instr.find(instr) != argument_reachable_instr.end()) {
-        stats.addUnprotectedArgumentReachableInstruction(instr);
-        skipped_instructions.insert(instr);
-        return true;
-    } else if (global_reachable_instr.find(instr) != global_reachable_instr.end()) {
-        skipped_instructions.insert(instr);
-        return true;
-    } else if (skipped_instructions.find(instr) != skipped_instructions.end()) {
-        // TODO: which section of stats add this?
+    if (skipped_instructions.find(instr) != skipped_instructions.end()) {
         return true;
     }
     for (auto op = instr->op_begin(); op != instr->op_end(); ++op) {
@@ -102,6 +92,47 @@ bool skip_short_range_instruction(llvm::Instruction* instr,
         }
     }
     return false;
+}
+
+bool isDefinedInAnotherPath(const MemoryDefinitionBlocks::DefInfos& def_infos,
+                            const FunctionOHPaths::OHPath& path,
+                            std::unordered_set<llvm::Instruction*>& skipped_instructions,
+                            llvm::Instruction* instr)
+{
+    if (def_infos.empty()) {
+        return false;
+    }
+    for (auto& def_info : def_infos) {
+        if (!FunctionOHPaths::pathContainsBlock(path, def_info.defBlock)) {
+            skipped_instructions.insert(instr);
+            return true;
+        }
+        if (skipped_instructions.find(def_info.defInstr) != skipped_instructions.end()) {
+            skipped_instructions.insert(instr);
+            return true;
+        }
+    }
+    return false;
+}
+
+bool skip_short_range_instruction(llvm::Instruction* instr,
+                                  const std::unordered_set<llvm::Instruction*>& argument_reachable_instr,
+                                  const std::unordered_set<llvm::Instruction*>& global_reachable_instr,
+                                  std::unordered_set<llvm::Instruction*>& skipped_instructions,
+                                  OHStats& stats)
+{
+    if (argument_reachable_instr.find(instr) != argument_reachable_instr.end()) {
+        stats.addUnprotectedArgumentReachableInstruction(instr);
+        skipped_instructions.insert(instr);
+        return true;
+    } else if (global_reachable_instr.find(instr) != global_reachable_instr.end()) {
+        skipped_instructions.insert(instr);
+        return true;
+    } else if (skipped_instructions.find(instr) != skipped_instructions.end()) {
+        // TODO: which section of stats add this?
+        return true;
+    }
+    return shouldSkipInstruction(instr, skipped_instructions);
 }
 
 llvm::Loop* get_outermost_loop(llvm::Loop* loop)
@@ -254,8 +285,8 @@ void FunctionExtractionHelper::extractFunction()
     m_path.path_assert->eraseFromParent();
 
     // debug
-    //llvm::dbgs() << "Final path function\n";
-    //m_pathF->dump();
+    // llvm::dbgs() << "Final path function\n";
+    // m_pathF->dump();
 }
 
 void FunctionExtractionHelper::extendPath()
@@ -624,6 +655,7 @@ void ObliviousHashInsertionPass::getAnalysisUsage(llvm::AnalysisUsage &AU) const
 {
     AU.setPreservesAll();
     AU.addRequired<llvm::AssumptionCacheTracker>(); // otherwise run-time error
+    AU.addRequired<llvm::MemorySSAWrapperPass>();
     llvm::getAAResultsAnalysisUsage(AU);
     AU.addRequired<input_dependency::InputDependencyAnalysisPass>();
     AU.addRequired<llvm::LoopInfoWrapperPass>();
@@ -1057,6 +1089,19 @@ void ObliviousHashInsertionPass::setup_hash_values()
 		         llvm::ConstantInt::get(llvm::Type::getInt64Ty(Ctx), 0));
 }
 
+void ObliviousHashInsertionPass::setup_memory_defining_blocks()
+{
+    for (auto& F : *m_M) {
+        if (skip_function(F)) {
+            continue;
+        }
+        llvm::MemorySSA& ssa = getAnalysis<llvm::MemorySSAWrapperPass>(F).getMSSA();
+        auto res = m_function_memory_defining_blocks.insert(std::make_pair(&F, MemoryDefinitionBlocks(F, ssa)));
+        assert(res.second);
+        res.first->second.collectDefiningBlocks();
+    }
+}
+
 bool ObliviousHashInsertionPass::skip_function(llvm::Function& F) const
 {
     if (F.isDeclaration() || F.isIntrinsic()) {
@@ -1209,15 +1254,28 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
     entry_block->getInstList().insertAfter(alloca_pos, local_store);
 
     InstructionSet& skipped_instructions = m_function_skipped_instructions[F];
+    InstructionSet path_skipped_instructions;
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
     const auto& skip_instruction_pred = [this, &local_hash, &local_store,
                                          &argument_reachable_instr,
                                          &global_reachable_instr,
-                                         &skipped_instructions]
+                                         &skipped_instructions,
+                                         &path_skipped_instructions,
+                                         &path]
                                         (llvm::Instruction* instr)
                                          {
                                              if (instr == local_hash || instr == local_store) {
                                                  return true;
+                                             }
+                                             if (shouldSkipInstruction(instr, path_skipped_instructions)) {
+                                                 return true;
+                                             }
+                                             auto pos = m_function_memory_defining_blocks.find(instr->getParent()->getParent());
+                                             if (pos != m_function_memory_defining_blocks.end()) {
+                                                 const auto& def_infos = pos->second.getDefinitionInfos(instr);
+                                                 if (isDefinedInAnotherPath(def_infos, path, path_skipped_instructions, instr)) {
+                                                     return true;
+                                                 }
                                              }
                                              return skip_short_range_instruction(instr,
                                                                                  argument_reachable_instr,
@@ -1601,6 +1659,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
     setup_used_analysis_results();
     setup_functions();
     setup_hash_values();
+    setup_memory_defining_blocks();
     auto* assert_md_str = llvm::MDString::get(M.getContext(), "oh_assert");
     assert_metadata = llvm::MDNode::get(M.getContext(), assert_md_str);
 

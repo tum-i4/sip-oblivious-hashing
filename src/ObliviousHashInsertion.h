@@ -3,6 +3,7 @@
 #include "llvm/Pass.h"
 
 #include "FunctionOHPaths.h"
+#include "MemoryDefinitionBlocks.h"
 #include "Stats.h"
 #include "Slicer.h"
 #include "input-dependency/InputDependencyAnalysisPass.h"
@@ -62,6 +63,7 @@ private:
   void setup_used_analysis_results();
   void setup_functions();
   void setup_hash_values();
+  void setup_memory_defining_blocks();
   bool skip_function(llvm::Function& F) const;
   bool process_function(llvm::Function* F);
   bool process_function_with_short_range_oh_enabled(llvm::Function* F);
@@ -146,6 +148,7 @@ private:
   std::vector<unsigned> usedHashIndices;
   BasicBlocksSet m_processed_deterministic_blocks;
 
+  std::unordered_map<llvm::Function*, MemoryDefinitionBlocks> m_function_memory_defining_blocks;
   std::unordered_map<llvm::Function*, std::vector<short_range_path_oh>> m_function_oh_paths;
         // It's more efficient to collect skipped instructions
   std::unordered_map<llvm::Function*, InstructionSet> m_function_skipped_instructions;
