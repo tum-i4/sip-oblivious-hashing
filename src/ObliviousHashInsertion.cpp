@@ -94,7 +94,7 @@ bool shouldSkipInstruction(llvm::Instruction* instr,
     return false;
 }
 
-bool isDefinedInAnotherPath(const MemoryDefinitionBlocks::DefInfos& def_infos,
+bool isDefinedInAnotherPath(const MemoryDefinitionData::DefInfos& def_infos,
                             const FunctionOHPaths::OHPath& path,
                             std::unordered_set<llvm::Instruction*>& skipped_instructions,
                             llvm::Instruction* instr)
@@ -1096,7 +1096,7 @@ void ObliviousHashInsertionPass::setup_memory_defining_blocks()
             continue;
         }
         llvm::MemorySSA& ssa = getAnalysis<llvm::MemorySSAWrapperPass>(F).getMSSA();
-        auto res = m_function_memory_defining_blocks.insert(std::make_pair(&F, MemoryDefinitionBlocks(F, ssa)));
+        auto res = m_function_memory_defining_blocks.insert(std::make_pair(&F, MemoryDefinitionData(F, ssa)));
         assert(res.second);
         res.first->second.collectDefiningBlocks();
     }

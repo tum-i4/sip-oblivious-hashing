@@ -12,7 +12,7 @@ class Function;
 
 namespace oh {
 
-class MemoryDefinitionBlocks
+class MemoryDefinitionData
 {
 public:
 
@@ -23,7 +23,7 @@ public:
     using DefInfos = std::vector<DefInfo>;
 
 public:
-    MemoryDefinitionBlocks(llvm::Function& F, llvm::MemorySSA& ssa);
+    MemoryDefinitionData(llvm::Function& F, llvm::MemorySSA& ssa);
 
 
     void collectDefiningBlocks();
@@ -34,6 +34,7 @@ private:
     llvm::MemorySSA& m_memorySSA;
     std::unordered_map<llvm::Instruction*, DefInfos> m_definingBlocks;
 };
+
 
 }
 
