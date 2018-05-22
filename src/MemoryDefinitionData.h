@@ -26,15 +26,15 @@ public:
     MemoryDefinitionData(llvm::Function& F, llvm::MemorySSA& ssa);
 
 
-    void collectDefiningBlocks();
-    const DefInfos& getDefinitionInfos(llvm::Instruction* I);
+    void collectDefiningData();
+    const DefInfos& getDefinitionData(llvm::Instruction* I);
+    const DefInfos& getDefinitionData(llvm::Instruction* I) const;
 
 private:
     llvm::Function& m_F;
     llvm::MemorySSA& m_memorySSA;
     std::unordered_map<llvm::Instruction*, DefInfos> m_definingBlocks;
 };
-
 
 }
 

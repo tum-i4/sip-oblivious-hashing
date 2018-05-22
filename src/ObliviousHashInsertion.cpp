@@ -1098,7 +1098,7 @@ void ObliviousHashInsertionPass::setup_memory_defining_blocks()
         llvm::MemorySSA& ssa = getAnalysis<llvm::MemorySSAWrapperPass>(F).getMSSA();
         auto res = m_function_memory_defining_blocks.insert(std::make_pair(&F, MemoryDefinitionData(F, ssa)));
         assert(res.second);
-        res.first->second.collectDefiningBlocks();
+        res.first->second.collectDefiningData();
     }
 }
 
@@ -1272,7 +1272,7 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
                                              }
                                              auto pos = m_function_memory_defining_blocks.find(instr->getParent()->getParent());
                                              if (pos != m_function_memory_defining_blocks.end()) {
-                                                 const auto& def_infos = pos->second.getDefinitionInfos(instr);
+                                                 const auto& def_infos = pos->second.getDefinitionData(instr);
                                                  if (isDefinedInAnotherPath(def_infos, path, path_skipped_instructions, instr)) {
                                                      return true;
                                                  }
