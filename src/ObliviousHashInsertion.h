@@ -68,6 +68,7 @@ private:
   bool process_function(llvm::Function* F);
   bool process_function_with_short_range_oh_enabled(llvm::Function* F);
   bool process_function_with_global_oh(llvm::Function* F);
+  void insert_ordered_calls_for_path_functions();
   void insert_calls_for_path_functions();
   bool process_path(llvm::Function* F,
                     FunctionOHPaths::OHPath& path,

@@ -31,6 +31,7 @@
 #include <boost/algorithm/string/split.hpp>          // Include for boost::split
 #include <cstdlib>
 #include <ctime>
+#include <fstream>
 #include <iterator>
 #include <sstream>
 #include <string>
@@ -45,6 +46,17 @@ namespace oh {
 
 namespace {
 unsigned get_random(unsigned range) { return rand() % range; }
+
+std::vector<std::string> parse_functions_in_order(const std::string& file_name)
+{
+    std::vector<std::string> functions;
+    std::ifstream ifs(file_name);
+    std::string function;
+    while (ifs >> function) {
+        functions.push_back(function);
+    }
+    return functions;
+}
 
 bool skipInstruction(llvm::Instruction& I)
 {
@@ -189,6 +201,7 @@ private:
     void createMissingInstructions();
     void createMissingOperands(llvm::Instruction* instr);
     void remapPathFunctionInstructions();
+    void removeUnusedInstructions();
     void replaceUniqueAssertCall(llvm::CallInst* callInst);
     void adjustBlockTerminators();
     bool adjustTerminatorFromOriginalBlock(llvm::BasicBlock* block);
@@ -282,6 +295,7 @@ void FunctionExtractionHelper::extractFunction()
     //m_pathF->dump();
 
     remapPathFunctionInstructions();
+    removeUnusedInstructions();
     m_path.path_assert->eraseFromParent();
 
     // debug
@@ -454,6 +468,43 @@ void FunctionExtractionHelper::remapPathFunctionInstructions()
         extracted_blocks.push_back(&B);
     }
     llvm::remapInstructionsInBlocks(extracted_blocks, m_valueMap);
+}
+
+void FunctionExtractionHelper::removeUnusedInstructions()
+{
+    std::vector<llvm::Instruction*> instructions_to_remove;
+    for (auto& B : *m_pathF) {
+        for (auto& I : B) {
+            if (!I.user_empty()) {
+                continue;
+            }
+            if (llvm::dyn_cast<llvm::StoreInst>(&I)) {
+                continue;
+            }
+            if (llvm::dyn_cast<llvm::AllocaInst>(&I)) {
+                continue;
+            }
+            if (llvm::dyn_cast<llvm::TerminatorInst>(&I)) {
+                continue;
+            }
+            if (llvm::dyn_cast<llvm::CallInst>(&I)) {
+                continue;
+            }
+            if (llvm::dyn_cast<llvm::InvokeInst>(&I)) {
+                continue;
+            }
+            instructions_to_remove.push_back(&I);
+        }
+    }
+    auto it = instructions_to_remove.begin();
+    while (it != instructions_to_remove.end()) {
+        auto* I = *it;
+        ++it;
+        I->eraseFromParent();
+    }
+    if (m_pathF->getName() == "cache_redzone_test_path_0") {
+        m_pathF->dump();
+    }
 }
 
 void FunctionExtractionHelper::adjustBlockTerminators()
@@ -650,6 +701,9 @@ static llvm::cl::opt<std::string> SkipTaggedInstructions(
 static cl::opt<bool>
     shortRangeOH("short-range-oh", cl::Hidden,
                cl::desc("Apply short range hashing"));
+
+static cl::opt<std::string> CallOrderFile ("call-order", cl::Hidden,
+                                           cl::desc("Call order for extracted functions"));
 
 void ObliviousHashInsertionPass::getAnalysisUsage(llvm::AnalysisUsage &AU) const
 {
@@ -927,8 +981,9 @@ bool ObliviousHashInsertionPass::instrumentCallInst(CallInstTy* call,
         }
         hashInserted = hashInserted || argHashed;
     }
+    // TODO: comment if as one fix for memcached problem
     if (!isHashableFunction(called_function)) {
-        m_function_skipped_instructions[call->getParent()->getParent()].insert(call);
+       m_function_skipped_instructions[call->getParent()->getParent()].insert(call);
     }
     return hashInserted;
 }
@@ -1193,6 +1248,59 @@ void ObliviousHashInsertionPass::extract_path_functions()
             path.extracted_path_function = functionExtractor.getExtractedFunction();
         }
     }
+}
+
+void ObliviousHashInsertionPass::insert_ordered_calls_for_path_functions()
+{
+    const std::vector<std::string> functions = parse_functions_in_order(CallOrderFile);
+    llvm::FunctionType *function_type = llvm::FunctionType::get(llvm::Type::getVoidTy(m_M->getContext()),
+                                                                llvm::ArrayRef<llvm::Type*>(), false);
+    auto* path_functions_callee = llvm::dyn_cast<llvm::Function>(m_M->getOrInsertFunction(oh_path_functions_callee,
+                                                                                          function_type));
+    llvm::LLVMContext& Ctx = path_functions_callee->getContext();
+    llvm::BasicBlock* entry_block = llvm::BasicBlock::Create(Ctx,
+                                                             "entry",
+                                                             path_functions_callee);
+    llvm::IRBuilder<> builder(Ctx);
+    for (const auto& function : functions) {
+        llvm::Function* F = m_M->getFunction(function);
+        if (!F) {
+            llvm::dbgs() << "No function with name " << function << "\n";
+            continue;
+        }
+        auto oh_paths_pos = m_function_oh_paths.find(F);
+        if (oh_paths_pos == m_function_oh_paths.end()) {
+            llvm::dbgs() << "No path functions for " << F->getName() << "\n";
+            continue;
+        }
+        for (auto& path : oh_paths_pos->second) {
+            builder.SetInsertPoint(entry_block);
+            builder.CreateCall(path.extracted_path_function, llvm::ArrayRef<llvm::Value*>());
+        }
+    }
+    llvm::ReturnInst::Create(Ctx, entry_block);
+
+    llvm::Function* mainF = m_M->getFunction("main");
+    if (!mainF) {
+        llvm::dbgs() << "No main function. Can not insert calls to extracted path functions\n";
+        return;
+    }
+    llvm::IRBuilder<> main_builder(mainF->getContext());
+    main_builder.SetInsertPoint(&*mainF->getEntryBlock().getFirstInsertionPt());
+    main_builder.CreateCall(path_functions_callee, llvm::ArrayRef<llvm::Value*>());
+
+// Inserting at the beginning of each function
+//    for (auto& function_paths : m_function_oh_paths) {
+//        if (function_paths.second.empty()) {
+//            continue;
+//        }
+//        llvm::Function* F = function_paths.first;
+//        llvm::IRBuilder<> builder(F->getContext());
+//        for (auto& path : function_paths.second) {
+//            builder.SetInsertPoint(&*F->getEntryBlock().getFirstInsertionPt());
+//            builder.CreateCall(path.extracted_path_function, llvm::ArrayRef<llvm::Value*>());
+//        }
+//    }
 }
 
 void ObliviousHashInsertionPass::insert_calls_for_path_functions()
@@ -1687,7 +1795,11 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
     }
     if (shortRangeOH) {
         extract_path_functions();
-        insert_calls_for_path_functions();
+        //if (!CallOrderFile.empty()) {
+        //    insert_ordered_calls_for_path_functions();
+        //} else {
+            insert_calls_for_path_functions();
+        //}
     }
 
     if (!DumpOHStat.empty()) {
