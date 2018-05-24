@@ -4,13 +4,9 @@ import argparse
 import mmap
 def patch_binary(orig_name, new_name,debug):
     patch_map ={}
-    fld_instrs = []
-    expected_addresses = []
-    expected_hashes = []
-    placeholders = []
-    #orig_name = sys.argv[1]
-    #new_name = sys.argv[2]
+    expected_hashes={}
     e = ELF(orig_name)
+    #result = subprocess.check_output(["gdb", orig_name, "-x", "/home/anahitik/SIP/sip-oblivious-hashing/assertions/gdb_script.txt"]).decode("utf-8")
     result = subprocess.check_output(["gdb", orig_name, "-x", "/home/sip/sip-oblivious-hashing/assertions/gdb_script.txt"]).decode("utf-8")
     lines = result.splitlines()
     print result
@@ -18,45 +14,29 @@ def patch_binary(orig_name, new_name,debug):
         print "GDB patcher segmentation fault detected..."
         exit(1)
     isThirdLine = False
+    placeholder=""
+    expected_hash = 0
+
     for line in lines:
         if debug:
             print line
         if line.startswith("#1"):
             words = line.split()
-
-            fld_instrs.append(int(words[1], 16) - 20)
+            fld_instr = int(words[1], 16) - 20
+            function = words[3]
         if line.startswith("$"):
             words = line.split()
             if isThirdLine:
-                placeholders.append(words[2])
+                placeholder = words[2]
                 isThirdLine = False
+                expected_hashes[placeholder] = (expected_hash, fld_instr, function)
             else:
-                expected_hashes.append(int(words[2]))
+                expected_hash = int(words[2])
                 isThirdLine = True
 
 
-    #print "Instructions at:", [hex(i) for i in fld_instrs]
-    #print "Expected hashes:", expected_hashes
-    i = 0
-    for pos in fld_instrs:
-        expected = expected_hashes[i]
-        if pos in patch_map.keys():
-            if expected != patch_map[pos]:
-                print 'Err. Patching the same address '+ str(hex(pos)) +' placeholder['+str(placeholders[i])+'] with two different expected hashes'
-                exit(1)
-        if debug:
-            print str(i)+' Patching '+str(hex(pos))+" with "+str(expected)+ ' placeholder:'+str(placeholders[i]) 
-            print 'before ', e.disasm(pos,10)
-        patch_map[pos] = expected
-        
-	e.write(pos+2, struct.pack("<q", expected_hashes[i]))
-        i = i + 1
-	dis = e.disasm(pos, 10)
-        if debug:
-            print 'after ', dis
-
     e.save(new_name)
-    return i, placeholders, expected_hashes;
+    return expected_hashes
 
 def find_placeholder(mm, search_bytes):
     addr = mm.find(search_bytes)
@@ -64,26 +44,34 @@ def find_placeholder(mm, search_bytes):
         mm.seek(0)
     addr = mm.find(search_bytes)
     return addr
+
 def patch_address(mm, addr, patch_value):
     mm.seek(addr,os.SEEK_SET)
     mm.write(patch_value)
-def patch_placeholders(filename, placeholders, expected_hashes):
+def patch_placeholders(filename, placeholders, debug):
     with open(filename, 'r+b') as f:
         mm = mmap.mmap(f.fileno(), 0)
-        i=0
         patch_count = 0
         for placeholder in placeholders:
-            expected_hash = expected_hashes[i]
+            expected_hash = placeholders[placeholder][0]
+            if debug:
+                print 'Seeking to placeholder ' + placeholder + ' with expected hash ' + str(expected_hash)
             search_bytes = struct.pack("<q", long(placeholder))
             address =0
             patch_value = struct.pack("<q", expected_hash)
-            while address!=-1:
-                print 'Found placeholder '+placeholder+' trying to patch it...'
+            if debug:
+                print 'patch value ' + bytes(patch_value)
+            address = find_placeholder(mm, search_bytes)
+            if address == -1:
+                print str(placeholder) + ' placeholder not found'
+            else :
                 patch_count = patch_count + 1
+            while address!=-1:
+                if debug:
+                    print 'Found placeholder '+placeholder+' at ' + hex(address) + ' trying to patch it with ' + str(expected_hash)
+                patch_address(mm,address,patch_value)
                 address = find_placeholder(mm, search_bytes)
-                if address != -1:
-                    patch_address(mm,address,patch_value)
-            i = i+1
+        return patch_count
 
 
 def main():
@@ -96,14 +84,18 @@ def main():
 
 
     results = parser.parse_args()
-    count_patched, placeholders, expected_hashes = patch_binary(results.binary,results.new_binary, results.debug)
+    placeholders = patch_binary(results.binary,results.new_binary, results.debug)
+    count_patched = patch_placeholders(results.new_binary,placeholders, results.debug)
     print "Patched:",count_patched," in ",results.new_binary," saved as:",results.new_binary
+    for placeholder in placeholders:
+        print 'Placeholder ' + str(placeholder) + ' expected has ' + hex(placeholders[placeholder][0]) + ' address ' + hex(placeholders[placeholder][1]) + ' function ' + placeholders[placeholder][2]
     assert_count =0
     if results.oh_stats_file:
         import json
         from pprint import pprint 
         oh_stats =json.load(open(results.oh_stats_file))
         assert_count = int(oh_stats["numberOfAssertCalls"])
+        assert_count = assert_count + int(oh_stats["numberOfShortRangeAssertCalls"])
     else: 
         assert_count = results.assert_count
 
@@ -115,8 +107,7 @@ def main():
         else:
             print 'Info. Patched=',count_patched," Asserts=",assert_count
 
-    #patch identifer placeholders
-    patch_placeholders(results.new_binary,placeholders, expected_hashes)
+    ##patch identifer placeholders
 
 if __name__ == "__main__":
     main()
