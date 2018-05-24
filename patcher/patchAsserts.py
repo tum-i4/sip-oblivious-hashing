@@ -73,7 +73,35 @@ def patch_placeholders(filename, placeholders, debug):
                 address = find_placeholder(mm, search_bytes)
         return patch_count
 
-
+def get_function_info(file_name, function_name):
+	import r2pipe
+	r2 = r2pipe.open(file_name)
+	#find addresses and sizes of all functions
+	r2.cmd("aa")
+	function_list = r2.cmdj("aflj")
+	found_func = filter(lambda function:  function['name'] == 'sym.'+function_name,function_list)
+	if len(found_func)>0:
+                address = r2.cmd("?p "+str(found_func[0]['offset']))
+		return int(address,16), found_func[0]['size']
+	return -1,-1
+def patch_block(file_name,address, size):
+    nop_list = []
+    for i in range(size-1):
+        nop_list.append(0x90)
+    nop_bytes = struct.pack('B'*len(nop_list),*nop_list)
+    with open(file_name, 'r+b') as f:
+        mm = mmap.mmap(f.fileno(), 0)
+        mm.seek(address,os.SEEK_SET)
+        mm.write(nop_bytes)
+def patch_function(file_name):
+    function_name = "oh_path_functions"
+    #find the address and size of the function in the binary
+    address, size = get_function_info(file_name,function_name)
+    print " oh_path_functions @"+hex(address),"  length:", str(size) 
+    if size>1:
+        patch_block(file_name,address, size)
+    else:
+        print 'No functions to NOP'
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-b',action='store', dest='binary', help='Binary name to patch using GDB')
@@ -107,7 +135,7 @@ def main():
         else:
             print 'Info. Patched=',count_patched," Asserts=",assert_count
 
-    ##patch identifer placeholders
-
+    ##NOP oh_path_functions
+    patch_function(results.new_binary)
 if __name__ == "__main__":
     main()
