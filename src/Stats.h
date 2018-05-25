@@ -31,8 +31,6 @@ private:
     int numberOfSensitiveBlocks = 0;
     int numberOfProtectedBlocks = 0;
     int numberOfShortRangeProtectedBlocks = 0;
-    int numberOfUnprotectedLoopBlocks = 0;
-    int numberOfNonHashableBlocks = 0;
     int numberOfUnprotectedDataDependentBlocks = 0;
 
     int numberOfSensitivePaths = 0;
@@ -49,7 +47,9 @@ private:
 
     using BasicBlocksSet = std::unordered_set<llvm::BasicBlock*>;
     BasicBlocksSet m_protectedBlocks;
-    BasicBlocksSet m_unprotectedLoopBlocks;
+    BasicBlocksSet m_unprotectedArgumentReachableLoopBlocks;
+    BasicBlocksSet m_unprotectedGlobalReachableLoopBlocks;
+    BasicBlocksSet m_unprotectedDataDependentLoopBlocks;
     BasicBlocksSet m_nonHashableBlocks;
     BasicBlocksSet m_unprotectedDataDependentBlocks;
     using InstructionSet = std::unordered_set<llvm::Instruction*>;
@@ -61,13 +61,18 @@ private:
 
 private:
     void addUnprotectedLoopInstructions();
+    void addUnprotectedLoopInstructions(const BasicBlocksSet& blocks);
     void dumpBlocks();
     void dumpInstructions();
+    void addUnprotectedLoopBlock(BasicBlocksSet& unprotectedLoopBlocks, llvm::BasicBlock* B);
+    void removeFromUnprotectedLoopBlocks(llvm::BasicBlock* B);
 
 public:
     void addProtectedBlock(llvm::BasicBlock* B);
     void addShortRangeOHProtectedBlock(llvm::BasicBlock* B);
-    void addUnprotectedLoopBlock(llvm::BasicBlock* B);
+    void addUnprotectedArgumentReachableLoopBlock(llvm::BasicBlock* B);
+    void addUnprotectedGlobalReachableLoopBlock(llvm::BasicBlock* B);
+    void addUnprotectedDataDependentLoopBlock(llvm::BasicBlock* B);
     void addNonHashableBlock(llvm::BasicBlock* B);
     void addUnprotectedDataDependentBlock(llvm::BasicBlock* B);
 
@@ -89,7 +94,6 @@ public:
     void addNumberOfProtectedGuardArguments(int);
 
     void addNumberOfShortRangeImplicitlyProtectedInstructions(int);
-    //void addNumberOfShortRangeProtectedInstructions(int);
     void addNumberOfShortRangeProtectedArguments(int);
     void addNumberOfShortRangeHashCalls(int);
     void addNumberOfShortRangeAssertCalls(int);
@@ -100,16 +104,12 @@ public:
     void addNumberOfProtectedBlocks(int);
     void addNumberOfShortRangeProtectedBlocks(int);
     void addNumberOfUnprotectedLoopBlocks(int);
-    void addNumberOfNonHashableBlocks(int);
     void addNumberOfUnprotectedDataDependentBlocks(int);
 
     void addNumberOfSensitiveFunctions(int);
     void addNumberOfProtectedFunctions(int);
     void addNumberOfSensitivePaths(int);
     void addNumberOfProtectedPaths(int);
-    //void addNumberOfNonHashableInstructions(int);
-    //void addNumberOfUnprotectedLoopInstructions(int);
-    void addNumberOfUnprotectedInputDependentInstructions(int);
 
     void dumpJson(std::string fileName);
 };

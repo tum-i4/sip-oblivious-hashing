@@ -12,6 +12,7 @@ namespace {
 void dump(const std::string& label, const std::unordered_set<llvm::BasicBlock*> blocks)
 {
     llvm::dbgs() << label << "\n";
+    llvm::dbgs() << "------------------------\n";
     for (const auto& B : blocks) {
         llvm::dbgs() << B->getParent()->getName() << "  " << B->getName() << "\n";
     }
@@ -20,6 +21,7 @@ void dump(const std::string& label, const std::unordered_set<llvm::BasicBlock*> 
 void dump(const std::string& label, const std::unordered_set<llvm::Instruction*> instructions)
 {
     llvm::dbgs() << label << "\n";
+    llvm::dbgs() << "------------------------\n";
     for (const auto& I : instructions) {
         llvm::dbgs() << I->getParent()->getName() << "  " << *I << "\n";
     }
@@ -48,26 +50,46 @@ void OHStats::addShortRangeOHProtectedBlock(llvm::BasicBlock* B)
     eraseFromUnprotectedBlocks(B);
 }
 
-void OHStats::addUnprotectedLoopBlock(llvm::BasicBlock* B)
+void OHStats::addUnprotectedArgumentReachableLoopBlock(llvm::BasicBlock* B)
+{
+    addUnprotectedLoopBlock(m_unprotectedArgumentReachableLoopBlocks,
+                            B);
+}
+
+void OHStats::addUnprotectedGlobalReachableLoopBlock(llvm::BasicBlock* B)
+{
+    addUnprotectedLoopBlock(m_unprotectedGlobalReachableLoopBlocks,
+                            B);
+}
+
+void OHStats::addUnprotectedDataDependentLoopBlock(llvm::BasicBlock* B)
+{
+    addUnprotectedLoopBlock(m_unprotectedDataDependentLoopBlocks,
+                            B);
+}
+
+void OHStats::addUnprotectedLoopBlock(BasicBlocksSet& unprotectedLoopBlocks,
+                                      llvm::BasicBlock* B)
 {
     if (m_protectedBlocks.find(B) != m_protectedBlocks.end()
         || m_nonHashableBlocks.find(B) != m_nonHashableBlocks.end()) {
         return;
     }
-    if (m_unprotectedLoopBlocks.insert(B).second) {
-        addNumberOfUnprotectedLoopBlocks(1);
-    }
+    unprotectedLoopBlocks.insert(B);
+}
+
+void OHStats::removeFromUnprotectedLoopBlocks(llvm::BasicBlock* B)
+{
+    m_unprotectedArgumentReachableLoopBlocks.erase(B);
+    m_unprotectedGlobalReachableLoopBlocks.erase(B);
+    m_unprotectedDataDependentLoopBlocks.erase(B);
 }
 
 void OHStats::addNonHashableBlock(llvm::BasicBlock* B)
 {
     assert(m_protectedBlocks.find(B) == m_protectedBlocks.end());
-    if (m_nonHashableBlocks.insert(B).second) {
-        addNumberOfNonHashableBlocks(1);
-    }
-    if (m_unprotectedLoopBlocks.erase(B)) {
-        addNumberOfUnprotectedLoopBlocks(-1);
-    }
+    m_nonHashableBlocks.insert(B);
+    removeFromUnprotectedLoopBlocks(B);
 }
 
 void OHStats::addUnprotectedDataDependentBlock(llvm::BasicBlock* B)
@@ -132,13 +154,9 @@ void OHStats::addUnprotectedGlobalReachableInstruction(llvm::Instruction* I)
 
 void OHStats::eraseFromUnprotectedBlocks(llvm::BasicBlock* B)
 {
-    if (m_unprotectedLoopBlocks.erase(B)) {
-        addNumberOfUnprotectedLoopBlocks(-1);
-    }
+    removeFromUnprotectedLoopBlocks(B);
     // TODO: non hashable Block can not becme hashable
-    if (m_nonHashableBlocks.erase(B)) {
-        addNumberOfNonHashableBlocks(-1);
-    }
+    m_nonHashableBlocks.erase(B);
 }
 
 void OHStats::addNumberOfProtectedGuardArguments(int value){
@@ -216,16 +234,6 @@ void OHStats::addNumberOfShortRangeProtectedBlocks(int value)
     numberOfShortRangeProtectedBlocks += value;
 }
 
-void OHStats::addNumberOfUnprotectedLoopBlocks(int value)
-{
-    numberOfUnprotectedLoopBlocks += value;
-}
-
-void OHStats::addNumberOfNonHashableBlocks(int value)
-{
-    numberOfNonHashableBlocks += value;
-}
-
 void OHStats::addNumberOfUnprotectedDataDependentBlocks(int value)
 {
     numberOfUnprotectedDataDependentBlocks += value;
@@ -251,24 +259,16 @@ void OHStats::addNumberOfProtectedPaths(int value)
     numberOfProtectedPaths += value;
 }
 
-//void OHStats::addNumberOfNonHashableInstructions(int value)
-//{
-//    numberOfNonHashableInstructions += value;
-//}
-//
-//void OHStats::addNumberOfUnprotectedLoopInstructions(int value)
-//{
-//    numberOfUnprotectedLoopInstructions += value;
-//}
-
-void OHStats::addNumberOfUnprotectedInputDependentInstructions(int value)
-{
-    numberOfUnprotectedInputDependentInstructions += value;
-}
-
 void OHStats::addUnprotectedLoopInstructions()
 {
-    for (auto& B : m_unprotectedLoopBlocks) {
+    addUnprotectedLoopInstructions(m_unprotectedArgumentReachableLoopBlocks);
+    addUnprotectedLoopInstructions(m_unprotectedGlobalReachableLoopBlocks);
+    addUnprotectedLoopInstructions(m_unprotectedDataDependentLoopBlocks);
+}
+
+void OHStats::addUnprotectedLoopInstructions(const BasicBlocksSet& blocks)
+{
+    for (auto& B : blocks) {
         numberOfUnprotectedLoopInstructions += B->getInstList().size();
     }
 }
@@ -297,8 +297,10 @@ void OHStats::dumpJson(std::string filePath){
 	j["numberOfSensitiveBlocks"] = numberOfSensitiveBlocks;
 	j["numberOfProtectedBlocks"] = numberOfProtectedBlocks;
 	j["numberOfShortRangeProtectedBlocks"] = numberOfShortRangeProtectedBlocks;
-	j["numberOfUnprotectedLoopBlocks"] = numberOfUnprotectedLoopBlocks;
-	j["numberOfNonHashableBlocks"] = numberOfNonHashableBlocks;
+	j["numberOfUnprotectedDataDependentLoopBlocks"] = m_unprotectedDataDependentLoopBlocks.size();
+	j["numberOfUnprotectedArgumentReachableLoopBlocks"] = m_unprotectedArgumentReachableLoopBlocks.size();
+	j["numberOfUnprotectedGlobalReachableLoopBlocks"] = m_unprotectedGlobalReachableLoopBlocks.size();
+	j["numberOfNonHashableBlocks"] = m_nonHashableBlocks.size();
 	j["numberOfUnprotectedDataDependentBlocks"] = numberOfUnprotectedDataDependentBlocks;
 
     j["numberOfSensitiveFunctions"] = numberOfSensitiveFunctions;
@@ -323,7 +325,9 @@ void OHStats::dumpJson(std::string filePath){
 void OHStats::dumpBlocks()
 {
     dump("Protected Blocks", m_protectedBlocks);
-    dump("Unprotected loop Blocks", m_unprotectedLoopBlocks);
+    dump("Unprotected data dependent loop Blocks", m_unprotectedDataDependentLoopBlocks);
+    dump("Unprotected argument reachable loop Blocks", m_unprotectedArgumentReachableLoopBlocks);
+    dump("Unprotected global reachable loop Blocks", m_unprotectedGlobalReachableLoopBlocks);
     dump("Non-hashable Blocks", m_nonHashableBlocks);
 }
 
