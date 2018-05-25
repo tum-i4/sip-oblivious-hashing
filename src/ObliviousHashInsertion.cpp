@@ -1162,6 +1162,9 @@ bool ObliviousHashInsertionPass::skip_function(llvm::Function& F) const
     if (F.isDeclaration() || F.isIntrinsic()) {
         return true;
     }
+    if (F.getMetadata("extracted")) {
+        return true;
+    }
     if (m_function_filter_info->get_functions().size() != 0 && !m_function_filter_info->is_function(&F)) {
         llvm::dbgs() << " Skipping function per FilterFunctionPass:" << F.getName() << "\n";
         return true;
