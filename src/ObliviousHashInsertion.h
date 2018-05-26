@@ -88,6 +88,16 @@ private:
                      bool insert_assert,
                      const SkipFunctionsPred& skipInstructionPred,
                      InstructionSet& skipped_instructions);
+  bool can_short_range_protect_loop(llvm::Function* F,
+                                    llvm::BasicBlock* assert_block,
+                                    bool& data_dep_loop,
+                                    bool& arg_reachable_loop,
+                                    bool& global_reachable_loop);
+  bool can_short_range_protect_loop_path(llvm::Function* F,
+                                         const FunctionOHPaths::OHPath& path,
+                                         bool& data_dep_loop,
+                                         bool& arg_reachable_loop,
+                                         bool& global_reachable_loop);
   bool can_insert_short_range_assertion(llvm::Function* F,
                                         const FunctionOHPaths::OHPath& path);
   llvm::BasicBlock* get_path_exit_block(llvm::Function* F,
@@ -100,7 +110,6 @@ private:
   bool can_insert_assertion_at_location(llvm::Function* F,
                                         llvm::BasicBlock* B,
                                         llvm::LoopInfo& LI);
-  bool insertHashBuilder(llvm::IRBuilder<> &builder, llvm::Value *v, llvm::Value* hash_value);
   bool insertHash(llvm::Instruction &I, llvm::Value *v, llvm::Value* hash_value, bool before);
   bool instrumentInst(llvm::Instruction& I, llvm::Value* hash_to_update, bool is_local_hash);
   template <class CallInstTy>
