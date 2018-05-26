@@ -155,7 +155,6 @@ void OHStats::addUnprotectedGlobalReachableInstruction(llvm::Instruction* I)
 void OHStats::eraseFromUnprotectedBlocks(llvm::BasicBlock* B)
 {
     removeFromUnprotectedLoopBlocks(B);
-    // TODO: non hashable Block can not becme hashable
     m_nonHashableBlocks.erase(B);
 }
 
@@ -333,6 +332,12 @@ void OHStats::dumpBlocks()
 
 void OHStats::dumpInstructions()
 {
+    //for (auto* I : m_shortRangeProtectedInstructions) {
+    //    assert(m_nonHashableInstructions.find(I) == m_nonHashableInstructions.end());
+    //    assert(m_dataDependentInstructions.find(I) == m_dataDependentInstructions.end());
+    //    assert(m_unprotectedArgumentReachableInstructions.find(I) == m_unprotectedArgumentReachableInstructions.end());
+    //    assert(m_unprotectedGlobalReachableInstructions.find(I) == m_unprotectedGlobalReachableInstructions.end());
+    //}
     dump("Short range protected instructions", m_shortRangeProtectedInstructions);
     dump("data dependent instructions", m_dataDependentInstructions);
     dump("non hashable instructions", m_nonHashableInstructions);

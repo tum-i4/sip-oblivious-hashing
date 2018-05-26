@@ -90,6 +90,16 @@ private:
                      InstructionSet& skipped_instructions);
   bool can_insert_short_range_assertion(llvm::Function* F,
                                         const FunctionOHPaths::OHPath& path);
+  bool can_short_range_protect_loop(llvm::Function* F,
+                                    llvm::BasicBlock* assert_block,
+                                    bool& data_dep_loop,
+                                    bool& arg_reachable_loop,
+                                    bool& global_reachable_loop);
+  bool can_short_range_protect_loop_path(llvm::Function* F,
+                                         const FunctionOHPaths::OHPath& path,
+                                         bool& data_dep_loop,
+                                         bool& arg_reachable_loop,
+                                         bool& global_reachable_loop);
   llvm::BasicBlock* get_path_exit_block(llvm::Function* F,
                                         const FunctionOHPaths::OHPath& path,
                                         bool& is_loop_path);
