@@ -9,25 +9,47 @@
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/IR/LegacyPassManager.h"
 
+#include <unordered_set>
+
 namespace oh {
 
 namespace {
 
-void add_defData(llvm::BasicBlock* block,
+void add_defData(llvm::Instruction* instr,
+                 llvm::BasicBlock* block,
                  llvm::MemoryAccess* access,
-                 MemoryDefinitionData::DefInfos& defs)
+                 MemoryDefinitionData::DefInfos& defs,
+                 std::unordered_set<llvm::MemoryAccess*>& processed_accesses)
 {
-    if (llvm::MemoryUseOrDef* useOrDef = llvm::dyn_cast<llvm::MemoryUseOrDef>(access)) {
-        auto* defInstr = useOrDef->getMemoryInst();
+    if (!processed_accesses.insert(access).second) {
+        return;
+    }
+    if (llvm::MemoryDef* def = llvm::dyn_cast<llvm::MemoryDef>(access)) {
+        auto* defInstr = def->getMemoryInst();
         block = defInstr->getParent() == block ? block : defInstr->getParent();
-        defs.push_back(MemoryDefinitionData::DefInfo{block, useOrDef->getMemoryInst()});
+        if (auto* store = llvm::dyn_cast<llvm::StoreInst>(defInstr)) {
+            if (auto* load = llvm::dyn_cast<llvm::LoadInst>(instr)) {
+                if (store->getPointerOperand() == load->getOperand(0)) {
+                    defs.push_back(MemoryDefinitionData::DefInfo{block, def->getMemoryInst()});
+                    return;
+                }
+            }
+        }
+        for (auto it = def->defs_begin(); it != def->defs_end(); ++it) {
+            llvm::MemoryAccess* def_access = *it;
+            if (llvm::dyn_cast<llvm::MemoryDef>(def_access)) {
+                defs.push_back(MemoryDefinitionData::DefInfo{block, def->getMemoryInst()});
+            } else {
+                add_defData(instr, def_access->getBlock(), def_access, defs, processed_accesses);
+            }
+        }
         return;
     }
     if (llvm::MemoryPhi* phi = llvm::dyn_cast<llvm::MemoryPhi>(access)) {
         for (unsigned i = 0; i < phi->getNumIncomingValues(); ++i) {
             auto* incomingBlock = phi->getIncomingBlock(i);
             llvm::MemoryAccess* incomingAccess = phi->getIncomingValue(i);
-            add_defData(incomingBlock, incomingAccess, defs);
+            add_defData(instr, incomingBlock, incomingAccess, defs, processed_accesses);
         }
     }
 }
@@ -47,6 +69,7 @@ void MemoryDefinitionData::collectDefiningData()
     for (auto& B : m_F) {
         for (auto& I : B) {
             auto& defData = m_definingBlocks[&I];
+            std::unordered_set<llvm::MemoryAccess*> processed_accesses;
             llvm::MemoryAccess* useOrDef = m_memorySSA.getMemoryAccess(&I);
             if (!useOrDef) {
                 continue;
@@ -59,6 +82,7 @@ void MemoryDefinitionData::collectDefiningData()
             if (!definingAccess) {
                 continue;
             }
+            processed_accesses.insert(definingAccess);
             if (m_memorySSA.isLiveOnEntryDef(definingAccess)) {
                 continue;
             }
@@ -66,7 +90,7 @@ void MemoryDefinitionData::collectDefiningData()
                 for (unsigned i = 0; i < phiAccess->getNumIncomingValues(); ++i) {
                     auto* incomingBlock = phiAccess->getIncomingBlock(i);
                     llvm::MemoryAccess* incomingAccess = phiAccess->getIncomingValue(i);
-                    add_defData(incomingBlock, incomingAccess, defData);
+                    add_defData(&I, incomingBlock, incomingAccess, defData, processed_accesses);
                 }
             } else if (llvm::MemoryDef* defAccess = llvm::dyn_cast<llvm::MemoryDef>(definingAccess)) {
                 auto* defInst = defAccess->getMemoryInst();

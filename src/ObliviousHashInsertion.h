@@ -46,7 +46,6 @@ public:
         FunctionOHPaths::OHPath path;
         llvm::Function* path_assert;
         llvm::Value* hash_variable;
-        bool is_loop_path;
         llvm::Function* extracted_path_function;
     };
 
@@ -101,8 +100,8 @@ private:
                                          bool& arg_reachable_loop,
                                          bool& global_reachable_loop);
   llvm::BasicBlock* get_path_exit_block(llvm::Function* F,
-                                        const FunctionOHPaths::OHPath& path,
-                                        bool& is_loop_path);
+                                        const FunctionOHPaths::OHPath& path);
+  FunctionOHPaths::OHPath extendPath(llvm::Function* F, const FunctionOHPaths::OHPath& path);
   const InstructionSet& get_argument_reachable_instructions(llvm::Function* F);
   const InstructionSet& get_global_reachable_instructions(llvm::Function* F);
   void collect_argument_reachable_instructions(llvm::Function* F);
