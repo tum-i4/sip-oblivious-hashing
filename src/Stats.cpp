@@ -111,6 +111,9 @@ void OHStats::addShortRangeProtectedInstruction(llvm::Instruction* I)
     if (m_unprotectedGlobalReachableInstructions.erase(I)) {
         numberOfUnprotectedGlobalReachableInstructions += -1;
     }
+    if (m_dataDependentInstructions.erase(I)) {
+        numberOfDataDependentInstructions += -1;
+    }
 }
 
 void OHStats::addDataDependentInstruction(llvm::Instruction* I)
