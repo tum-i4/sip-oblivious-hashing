@@ -183,7 +183,28 @@ void dump_path(const FunctionOHPaths::OHPath& path)
     llvm::dbgs() << "\n";
 }
 
-bool insertHashBuilder(llvm::IRBuilder<> &builder,
+bool isHashableValue(llvm::Value* v)
+{
+    if (llvm::dyn_cast<llvm::ConstantPointerNull>(v)) {
+        llvm::dbgs() << "Null pointer skipped:" << *v << "\n";
+        return false;
+    }
+
+    llvm::Type* valueType = v->getType();
+    if (v->getType()->isPointerTy()) {
+        valueType = v->getType()->getPointerElementType();
+    }
+
+    if (!valueType->isIntegerTy() && !valueType->isFloatingPointTy()) {
+        // Currently we only handle int and float pointers
+        dbgs() << "Non numeric pointers (int and float) are skipped:"
+               << *v << " " << *valueType << "\n";
+        return false;
+    }
+    return true;
+}
+
+void insertHashBuilder(llvm::IRBuilder<> &builder,
                        llvm::Value *v,
                        llvm::Value* hash_value,
                        llvm::Function* hashFunc)
@@ -191,18 +212,7 @@ bool insertHashBuilder(llvm::IRBuilder<> &builder,
     llvm::LLVMContext &Ctx = builder.getContext();
     llvm::Value *cast = nullptr;
     llvm::Value *load = nullptr;
-    if (llvm::dyn_cast<llvm::ConstantPointerNull>(v)) {
-        llvm::dbgs() << "Null pointer skipped:" << *v << "\n";
-        return false;
-    }
     if (v->getType()->isPointerTy()) {
-        llvm::Type *ptrType = v->getType()->getPointerElementType();
-        if (!ptrType->isIntegerTy() && !ptrType->isFloatingPointTy()) {
-            // Currently we only handle int and float pointers
-            dbgs() << "Non numeric pointers (int and float) are skipped:"
-                << *v << " " << *ptrType << "\n";
-            return false;
-        }
         load = builder.CreateLoad(v);
     } else {
         load = v;
@@ -213,9 +223,7 @@ bool insertHashBuilder(llvm::IRBuilder<> &builder,
     } else if (load->getType()->isFloatingPointTy()) {
         cast = builder.CreateFPToSI(load, llvm::Type::getInt64Ty(Ctx));
     } else {
-        dbgs() << "\nERR. Any value other than int and float is passed to insertHashBuilder\n";
-        dbgs() << *load->getType() << "\n";
-        return false;
+        assert("false");
     }
     std::vector<llvm::Value *> arg_values;
     arg_values.push_back(hash_value);
@@ -223,7 +231,6 @@ bool insertHashBuilder(llvm::IRBuilder<> &builder,
     llvm::ArrayRef<llvm::Value *> args(arg_values);
 
     builder.CreateCall(hashFunc, args);
-    return true;
 }
 
 class FunctionExtractionHelper
@@ -599,20 +606,24 @@ void FunctionExtractionHelper::hashBranch(llvm::BranchInst* originalBranchInst,
     } else {
         cmpVal = llvm::ConstantInt::getFalse(Ctx);
     }
+    if (!isHashableValue(cmpVal)) {
+        return;
+    }
     insertHashBuilder(builder, cmpVal, m_path.hash_variable, hashFunc);
 }
 
 llvm::Function* FunctionExtractionHelper::instrumentBranchInstruction(llvm::BranchInst* branchInst)
 {
+    llvm::Value* cmpVal = branchInst->getCondition();
+    if (!isHashableValue(cmpVal)) {
+        return nullptr;
+    }
     llvm::LLVMContext &Ctx = branchInst->getModule()->getContext();
     llvm::IRBuilder<> builder(branchInst);
     builder.SetInsertPoint(branchInst->getParent(), builder.GetInsertPoint());
     llvm::Function* hashFunc = get_random(2) ? m_hashFunc1 : m_hashFunc2;
-    llvm::Value* cmpVal = branchInst->getCondition();
-    if (insertHashBuilder(builder, cmpVal, m_path.hash_variable, hashFunc)) {
-        return hashFunc;
-    }
-    return nullptr;
+    insertHashBuilder(builder, cmpVal, m_path.hash_variable, hashFunc);
+    return hashFunc;
 }
 
 void FunctionExtractionHelper::replaceUniqueAssertCall(llvm::CallInst* callInst)
@@ -830,7 +841,11 @@ bool ObliviousHashInsertionPass::insertHash(llvm::Instruction &I,
         builder.SetInsertPoint(I.getParent(), ++builder.GetInsertPoint());
     }
     llvm::Function* hashFunc = get_random(2) ? hashFunc1 : hashFunc2;
-    return insertHashBuilder(builder, v, hash_value, hashFunc);
+    if (!isHashableValue(v)) {
+        return false;
+    }
+    insertHashBuilder(builder, v, hash_value, hashFunc);
+    return true;
 }
 
 void ObliviousHashInsertionPass::parse_skip_tags() {
@@ -1193,7 +1208,7 @@ bool ObliviousHashInsertionPass::skip_function(llvm::Function& F) const
         llvm::dbgs() << "Skipping function. No input dep info " << F.getName() << "\n";
         return true;
     }
-    return false;
+    return F_input_dependency_info->isExtractedFunction();
 }
 
 bool ObliviousHashInsertionPass::process_function(llvm::Function* F)
