@@ -60,7 +60,7 @@ gcc -g -rdynamic out.o response.o -o out
 # intermediate precompute hashes
 #clang++-3.9 -g -lncurses -rdynamic -std=c++0x out.bc -o out
 
-export LD_PRELOAD="/home/sip/self-checksumming/hook/build/libminm.so" 
+#export LD_PRELOAD="/home/sip/self-checksumming/hook/build/libminm.so" 
 
 #Patch using GDB
 python $OH_PATH/patcher/patchAsserts.py -b out -n out_patched -s oh.stats 

@@ -2,12 +2,20 @@ from pwn import *
 import sys, subprocess
 import argparse
 import mmap
-def patch_binary(orig_name, new_name,debug):
+from shutil import copyfile
+def patch_binary(orig_name, new_name,debug, args):
     patch_map ={}
     expected_hashes={}
-    e = ELF(orig_name)
+    #e = ELF(orig_name)
     #result = subprocess.check_output(["gdb", orig_name, "-x", "/home/anahitik/SIP/sip-oblivious-hashing/assertions/gdb_script.txt"]).decode("utf-8")
-    result = subprocess.check_output(["gdb", orig_name, "-x", "/home/sip/sip-oblivious-hashing/assertions/gdb_script.txt"]).decode("utf-8")
+    
+    cmd = ["gdb", orig_name, "-x", "/home/sip/sip-oblivious-hashing/assertions/gdb_script.txt"]
+    if args !='':
+        args_splitted = args.split();
+        cmd = ["gdb","-x", "/home/sip/sip-oblivious-hashing/assertions/gdb_script.txt",'--args',orig_name]
+        cmd.extend(args_splitted)
+    print cmd
+    result = subprocess.check_output(cmd).decode("utf-8")
     lines = result.splitlines()
     print result
     if "segmentation fault" in result.lower() or "bus error" in result.lower():
@@ -35,7 +43,8 @@ def patch_binary(orig_name, new_name,debug):
                 isThirdLine = True
 
 
-    e.save(new_name)
+    #e.save(new_name)
+    copyfile(orig_name,new_name);
     return expected_hashes
 
 def find_placeholder(mm, search_bytes):
@@ -109,10 +118,10 @@ def main():
     parser.add_argument('-a',action='store', dest='assert_count', help='Number of patches to be verified at the end of the process',required=False,type=int)
     parser.add_argument('-d',action='store', dest='debug', help='Print debug messages',required=False,type=bool, default=False)
     parser.add_argument('-s',action='store', dest='oh_stats_file', help='OH stats file to get the number of patches to be verified at the end of the process',required=False)
-
+    parser.add_argument('-g',action='store', dest='args', required= False, type=str,default='',help='Running arguments to the program to patch')
 
     results = parser.parse_args()
-    placeholders = patch_binary(results.binary,results.new_binary, results.debug)
+    placeholders = patch_binary(results.binary,results.new_binary, results.debug,results.args)
     count_patched = patch_placeholders(results.new_binary,placeholders, results.debug)
     print "Patched:",count_patched," in ",results.new_binary," saved as:",results.new_binary
     for placeholder in placeholders:
