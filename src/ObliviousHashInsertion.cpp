@@ -396,7 +396,9 @@ void FunctionExtractionHelper::clonePathInstructions()
 {
     //llvm::dbgs() << "Skip instructions\n";
     //for (auto& inst : m_skippedInstrs) {
-    //    llvm::dbgs() << *inst << "\n";
+    //    if (inst) {
+    //        llvm::dbgs() << *inst << "\n";
+    //    }
     //}
     for (auto& path_B : m_path.path) {
         auto clonedB_pos = m_valueMap.find(path_B);
@@ -1024,6 +1026,10 @@ bool ObliviousHashInsertionPass::instrumentCallInst(CallInstTy* call,
     if (!isHashableFunction(called_function)) {
        m_function_skipped_instructions[call->getParent()->getParent()].insert(call);
     }
+    auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(call->getParent()->getParent());
+    if (!F_input_dependency_info->isDataDependent(call)) {
+        m_function_skipped_instructions[call->getParent()->getParent()].insert(call);
+    }
     return hashInserted;
 }
 
@@ -1331,19 +1337,6 @@ void ObliviousHashInsertionPass::insert_ordered_calls_for_path_functions()
     llvm::IRBuilder<> main_builder(mainF->getContext());
     main_builder.SetInsertPoint(&*mainF->getEntryBlock().getFirstInsertionPt());
     main_builder.CreateCall(path_functions_callee, llvm::ArrayRef<llvm::Value*>());
-
-// Inserting at the beginning of each function
-//    for (auto& function_paths : m_function_oh_paths) {
-//        if (function_paths.second.empty()) {
-//            continue;
-//        }
-//        llvm::Function* F = function_paths.first;
-//        llvm::IRBuilder<> builder(F->getContext());
-//        for (auto& path : function_paths.second) {
-//            builder.SetInsertPoint(&*F->getEntryBlock().getFirstInsertionPt());
-//            builder.CreateCall(path.extracted_path_function, llvm::ArrayRef<llvm::Value*>());
-//        }
-//    }
 }
 
 void ObliviousHashInsertionPass::insert_calls_for_path_functions()
@@ -1384,7 +1377,7 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
     llvm::dbgs() << "Processing path: ";
     dump_path(path);
     const auto& argument_reachable_instr = get_argument_reachable_instructions(F);
-    const auto& global_reachable_instr = get_global_reachable_instructions(F);
+    auto& global_reachable_instr = get_global_reachable_instructions(F);
     const bool can_insert_assertion = can_insert_short_range_assertion(F, path);
     if (!can_insert_assertion) {
         llvm::dbgs() << "Can not insert short range assertion to the path. Processing deterministic blocks only.\n";
@@ -1423,6 +1416,16 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
                                              if (shouldSkipInstruction(instr, path_skipped_instructions)) {
                                                  return true;
                                              }
+                                             if (isUsingGlobal(instr, global_reachable_instr)) {
+                                                 skipped_instructions.insert(instr);
+                                                 global_reachable_instr.insert(instr);
+                                                 if (auto* store = llvm::dyn_cast<llvm::StoreInst>(instr)) {
+                                                     skipped_instructions.insert(llvm::dyn_cast<llvm::Instruction>(store->getPointerOperand()));
+                                                     global_reachable_instr.insert(llvm::dyn_cast<llvm::Instruction>(store->getPointerOperand()));
+                                                 }
+                                                 return true;
+                                             }
+
                                              auto pos = m_function_memory_defining_blocks.find(instr->getParent()->getParent());
                                              if (pos != m_function_memory_defining_blocks.end()) {
                                                  const auto& def_infos = pos->second.getDefinitionData(instr);
@@ -1575,6 +1578,42 @@ bool ObliviousHashInsertionPass::process_block(llvm::Function* F, llvm::BasicBlo
     return modified;
 }
 
+bool ObliviousHashInsertionPass::isUsingGlobal(llvm::Value* value,
+                                               const std::unordered_set<llvm::Instruction*>& global_reachable_instr)
+{
+    if (!value) {
+        return false;
+    }
+    if (auto* global = llvm::dyn_cast<llvm::GlobalVariable>(value)) {
+        if (llvm::dyn_cast<llvm::Function>(value)) {
+            return false;
+        }
+        if (global == TempVariable || std::find(hashPtrs.begin(), hashPtrs.end(), global) != hashPtrs.end()) {
+            return false;
+        }
+        return true;
+    }
+    auto* user = llvm::dyn_cast<llvm::User>(value);
+    if (!user) {
+        return false;
+    }
+    if (auto* instr = llvm::dyn_cast<llvm::Instruction>(user)) {
+        if (global_reachable_instr.find(instr) != global_reachable_instr.end()) {
+            return true;
+        }
+    }
+    if (llvm::dyn_cast<llvm::AllocaInst>(value)) {
+        return false;
+    }
+    for (auto op = user->op_begin(); op != user->op_end(); ++op) {
+        if (isUsingGlobal(llvm::dyn_cast<llvm::Value>(&*op), global_reachable_instr)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+
 bool ObliviousHashInsertionPass::can_short_range_protect_loop(llvm::Function* F,
                                                               llvm::BasicBlock* assert_block,
                                                               bool& data_dep_loop,
@@ -1723,7 +1762,7 @@ ObliviousHashInsertionPass::get_argument_reachable_instructions(llvm::Function* 
     return pos->second;
 }
 
-const ObliviousHashInsertionPass::InstructionSet&
+ObliviousHashInsertionPass::InstructionSet&
 ObliviousHashInsertionPass::get_global_reachable_instructions(llvm::Function* F)
 {
     auto pos = m_global_reachable_instructions.find(F);

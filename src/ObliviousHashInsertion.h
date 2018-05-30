@@ -87,6 +87,8 @@ private:
                      bool insert_assert,
                      const SkipFunctionsPred& skipInstructionPred,
                      InstructionSet& skipped_instructions);
+  bool isUsingGlobal(llvm::Value* value,
+                     const std::unordered_set<llvm::Instruction*>& global_reachable_instr);
   bool can_short_range_protect_loop(llvm::Function* F,
                                     llvm::BasicBlock* assert_block,
                                     bool& data_dep_loop,
@@ -103,7 +105,7 @@ private:
                                         const FunctionOHPaths::OHPath& path);
   FunctionOHPaths::OHPath extendPath(llvm::Function* F, const FunctionOHPaths::OHPath& path);
   const InstructionSet& get_argument_reachable_instructions(llvm::Function* F);
-  const InstructionSet& get_global_reachable_instructions(llvm::Function* F);
+  InstructionSet& get_global_reachable_instructions(llvm::Function* F);
   void collect_argument_reachable_instructions(llvm::Function* F);
   void collect_global_reachable_instructions(llvm::Function* F);
   bool can_insert_assertion_at_location(llvm::Function* F,
