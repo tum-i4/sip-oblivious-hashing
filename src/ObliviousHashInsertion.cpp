@@ -1021,9 +1021,9 @@ bool ObliviousHashInsertionPass::instrumentCallInst(CallInstTy* call,
         hashInserted = hashInserted || argHashed;
     }
     // TODO: comment if as one fix for memcached problem
-    //if (!isHashableFunction(called_function)) {
+    if (!isHashableFunction(called_function)) {
        m_function_skipped_instructions[call->getParent()->getParent()].insert(call);
-    //}
+    }
     return hashInserted;
 }
 
@@ -1912,11 +1912,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
     }
     if (shortRangeOH) {
         extract_path_functions();
-        //if (!CallOrderFile.empty()) {
-        //    insert_ordered_calls_for_path_functions();
-        //} else {
-            insert_calls_for_path_functions();
-        //}
+        insert_calls_for_path_functions();
     }
 
     if (!DumpOHStat.empty()) {
