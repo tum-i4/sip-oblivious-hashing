@@ -978,6 +978,11 @@ bool ObliviousHashInsertionPass::instrumentCallInst(CallInstTy* call,
             called_function == hashFunc1 || called_function == hashFunc2) {
         return false;
     }
+    auto calledF_input_dependency_info = m_input_dependency_info->getAnalysisInfo(called_function);
+    if (calledF_input_dependency_info && calledF_input_dependency_info->isExtractedFunction()) {
+        m_function_skipped_instructions[call->getParent()->getParent()].insert(call);
+        return false;
+    }
     for (int i = 0; i < call->getNumArgOperands(); ++i) {
         auto* operand = call->getArgOperand(i);
         bool argHashed = false;
@@ -1016,9 +1021,9 @@ bool ObliviousHashInsertionPass::instrumentCallInst(CallInstTy* call,
         hashInserted = hashInserted || argHashed;
     }
     // TODO: comment if as one fix for memcached problem
-    if (!isHashableFunction(called_function)) {
+    //if (!isHashableFunction(called_function)) {
        m_function_skipped_instructions[call->getParent()->getParent()].insert(call);
-    }
+    //}
     return hashInserted;
 }
 
