@@ -26,6 +26,7 @@ class GlobalVariable;
 class Instruction;
 class Value;
 class LoopInfo;
+class Loop;
 class MDNode;
 }
 
@@ -71,7 +72,21 @@ private:
   void insert_calls_for_path_functions();
   bool process_path(llvm::Function* F,
                     FunctionOHPaths::OHPath& path,
-                    unsigned path_num);
+                    const InstructionSet& instructions_to_hash = InstructionSet());
+  bool process_path(llvm::Function* F,
+                    FunctionOHPaths::OHPath& path,
+                    llvm::BasicBlock* exit_block,
+                    bool can_insert_assertion,
+                    const InstructionSet& instructions_to_hash = InstructionSet());
+  bool process_loop_path(llvm::Function* F,
+                         FunctionOHPaths::OHPath& path);
+  std::unordered_map<llvm::BasicBlock*, FunctionOHPaths::OHPath>
+      split_path_to_hashable_paths(llvm::Function* F,
+                                   FunctionOHPaths::OHPath& path);
+  InstructionSet collect_loop_invariants(llvm::Function* F,
+                                         llvm::Loop* loop,
+                                         const FunctionOHPaths::OHPath& path);
+
   void extract_path_functions();
   bool can_instrument_instruction(llvm::Function* F,
                                   llvm::Instruction* I,
@@ -89,7 +104,12 @@ private:
                      InstructionSet& skipped_instructions);
   bool isUsingGlobal(llvm::Value* value,
                      const std::unordered_set<llvm::Instruction*>& global_reachable_instr);
+
+  bool is_data_dependent_loop(llvm::Loop* loop) const;
+  bool is_argument_reachable_loop(llvm::Loop* loop);
+  bool is_global_reachable_loop(llvm::Loop* loop);
   bool can_short_range_protect_loop(llvm::Function* F,
+                                    const FunctionOHPaths::OHPath& path,
                                     llvm::BasicBlock* assert_block,
                                     bool& data_dep_loop,
                                     bool& arg_reachable_loop,
@@ -99,6 +119,8 @@ private:
                                          bool& data_dep_loop,
                                          bool& arg_reachable_loop,
                                          bool& global_reachable_loop);
+  bool is_hashable_loop_path(llvm::Function* F,
+                             const FunctionOHPaths::OHPath& path);
   bool can_insert_short_range_assertion(llvm::Function* F,
                                         const FunctionOHPaths::OHPath& path);
   llvm::BasicBlock* get_path_exit_block(llvm::Function* F,
@@ -165,6 +187,7 @@ private:
   std::unordered_map<llvm::Function*, InstructionSet> m_function_skipped_instructions;
   std::unordered_map<llvm::Function*, InstructionSet> m_argument_reachable_instructions;
   std::unordered_map<llvm::Function*, InstructionSet> m_global_reachable_instructions;
+  std::unordered_map<llvm::BasicBlock*, InstructionSet> m_block_invariants;
 
   InstructionSet m_globalHashedInstructions;
   InstructionSet m_shortRangeHashedInstructions;

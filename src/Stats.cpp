@@ -23,7 +23,7 @@ void dump(const std::string& label, const std::unordered_set<llvm::Instruction*>
     llvm::dbgs() << label << "\n";
     llvm::dbgs() << "------------------------\n";
     for (const auto& I : instructions) {
-        llvm::dbgs() << I->getParent()->getName() << "  " << *I << "\n";
+        llvm::dbgs() << I->getParent()->getParent()->getName() << " " << I->getParent()->getName() << "  " << *I << "\n";
     }
 }
 
@@ -308,7 +308,6 @@ void OHStats::dumpJson(std::string filePath){
     j["numberOfSensitiveFunctions"] = numberOfSensitiveFunctions;
     j["numberOfProtectedFunctions"] = numberOfProtectedFunctions;
     j["numberOfSensitivePaths"] = numberOfSensitivePaths;
-    j["numberOfProtectedPaths"] = numberOfProtectedPaths;
     j["numberOfNonHashableInstructions"] = numberOfNonHashableInstructions;
     j["numberOfUnprotectedLoopInstructions"] = numberOfUnprotectedLoopInstructions;
     j["numberOfDataDependentInstructions"] = numberOfDataDependentInstructions;
@@ -321,7 +320,7 @@ void OHStats::dumpJson(std::string filePath){
 	o << std::setw(4) << j << std::endl;
 
     //dumpBlocks();
-    //dumpInstructions();
+    dumpInstructions();
 }
 
 void OHStats::dumpBlocks()
@@ -342,9 +341,9 @@ void OHStats::dumpInstructions()
     //    assert(m_unprotectedGlobalReachableInstructions.find(I) == m_unprotectedGlobalReachableInstructions.end());
     //}
     dump("Short range protected instructions", m_shortRangeProtectedInstructions);
-    dump("data dependent instructions", m_dataDependentInstructions);
-    dump("non hashable instructions", m_nonHashableInstructions);
-    dump("unprotected argument reachable instructions", m_unprotectedArgumentReachableInstructions);
+    //dump("data dependent instructions", m_dataDependentInstructions);
+    //dump("non hashable instructions", m_nonHashableInstructions);
+    //dump("unprotected argument reachable instructions", m_unprotectedArgumentReachableInstructions);
 }
 
 }
