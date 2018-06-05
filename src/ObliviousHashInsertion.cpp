@@ -188,8 +188,8 @@ llvm::Loop* get_outermost_loop(llvm::Loop* loop)
     return loop;
 }
 
-llvm::Loop* get_outer_most_loop_in_path(llvm::Loop* loop,
-                                        const FunctionOHPaths::OHPath& path)
+llvm::Loop* get_outermost_loop_in_path(llvm::Loop* loop,
+                                       const FunctionOHPaths::OHPath& path)
 {
     if (!FunctionOHPaths::pathContainsBlock(path, loop->getHeader())) {
         return loop;
@@ -1745,7 +1745,7 @@ ObliviousHashInsertionPass::split_path_to_hashable_paths(llvm::Function* F,
             common_part.push_back(B);
             continue;
         }
-        llvm::Loop* parent_loop = get_outer_most_loop_in_path(loop, path);
+        llvm::Loop* parent_loop = get_outermost_loop_in_path(loop, path);
         if (!parent_loop) {
             common_part.push_back(B);
             continue;
@@ -2125,7 +2125,7 @@ void ObliviousHashInsertionPass::extendPath(llvm::Function* F,
         if (!loop) {
             continue;
         }
-        auto* parent_loop = get_outermost_loop(loop);
+        auto* parent_loop = get_outermost_loop_in_path(loop, path);
         if (!processed_loops.insert(parent_loop).second) {
             continue;
         }
