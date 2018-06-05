@@ -48,6 +48,7 @@ public:
         llvm::Function* path_assert;
         llvm::Value* hash_variable;
         llvm::Function* extracted_path_function;
+        bool dont_hash_branches;
     };
 
 public:
@@ -72,11 +73,13 @@ private:
   void insert_calls_for_path_functions();
   bool process_path(llvm::Function* F,
                     FunctionOHPaths::OHPath& path,
+                    bool hash_given_instructions_only = false,
                     const InstructionSet& instructions_to_hash = InstructionSet());
   bool process_path(llvm::Function* F,
                     FunctionOHPaths::OHPath& path,
                     llvm::BasicBlock* exit_block,
                     bool can_insert_assertion,
+                    bool hash_given_instructions_only = false,
                     const InstructionSet& instructions_to_hash = InstructionSet());
   bool process_loop_path(llvm::Function* F,
                          FunctionOHPaths::OHPath& path);
@@ -125,7 +128,7 @@ private:
                                         const FunctionOHPaths::OHPath& path);
   llvm::BasicBlock* get_path_exit_block(llvm::Function* F,
                                         const FunctionOHPaths::OHPath& path);
-  FunctionOHPaths::OHPath extendPath(llvm::Function* F, const FunctionOHPaths::OHPath& path);
+  void extendPath(llvm::Function* F, FunctionOHPaths::OHPath& path);
   const InstructionSet& get_argument_reachable_instructions(llvm::Function* F);
   InstructionSet& get_global_reachable_instructions(llvm::Function* F);
   void collect_argument_reachable_instructions(llvm::Function* F);
@@ -188,6 +191,7 @@ private:
   std::unordered_map<llvm::Function*, InstructionSet> m_argument_reachable_instructions;
   std::unordered_map<llvm::Function*, InstructionSet> m_global_reachable_instructions;
   std::unordered_map<llvm::BasicBlock*, InstructionSet> m_block_invariants;
+  std::unordered_set<std::string> m_processed_paths;
 
   InstructionSet m_globalHashedInstructions;
   InstructionSet m_shortRangeHashedInstructions;

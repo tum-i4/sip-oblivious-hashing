@@ -87,7 +87,9 @@ void OHStats::removeFromUnprotectedLoopBlocks(llvm::BasicBlock* B)
 
 void OHStats::addNonHashableBlock(llvm::BasicBlock* B)
 {
-    assert(m_protectedBlocks.find(B) == m_protectedBlocks.end());
+    if (m_protectedBlocks.find(B) != m_protectedBlocks.end()) {
+        return;
+    }
     m_nonHashableBlocks.insert(B);
     removeFromUnprotectedLoopBlocks(B);
 }
@@ -320,7 +322,7 @@ void OHStats::dumpJson(std::string filePath){
 	o << std::setw(4) << j << std::endl;
 
     //dumpBlocks();
-    dumpInstructions();
+    //dumpInstructions();
 }
 
 void OHStats::dumpBlocks()
