@@ -1738,9 +1738,9 @@ FunctionOHPaths::OHPath ObliviousHashInsertionPass::extendPath(llvm::Function* F
         }
         for (auto& block : parent_loop->getBlocks()) {
             if (!FunctionOHPaths::pathContainsBlock(path, block)
-                    && !F_input_dependency_info->isInputDependentBlock(const_cast<llvm::BasicBlock*>(block))
-                    && argument_reachable_instr.find(block->getTerminator()) == argument_reachable_instr.end()
-                    && global_reachable_instr.find(block->getTerminator()) == global_reachable_instr.end()) {
+                    && !F_input_dependency_info->isInputDependentBlock(const_cast<llvm::BasicBlock*>(block))) {
+                    //&& argument_reachable_instr.find(block->getTerminator()) == argument_reachable_instr.end()
+                    //&& global_reachable_instr.find(block->getTerminator()) == global_reachable_instr.end()) {
                 pathExtension.push_back(block);
             }
         }
