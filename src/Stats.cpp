@@ -87,7 +87,9 @@ void OHStats::removeFromUnprotectedLoopBlocks(llvm::BasicBlock* B)
 
 void OHStats::addNonHashableBlock(llvm::BasicBlock* B)
 {
-    assert(m_protectedBlocks.find(B) == m_protectedBlocks.end());
+    if (m_protectedBlocks.find(B) != m_protectedBlocks.end()) {
+        return;
+    }
     m_nonHashableBlocks.insert(B);
     removeFromUnprotectedLoopBlocks(B);
 }

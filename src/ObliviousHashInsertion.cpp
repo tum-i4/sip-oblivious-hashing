@@ -548,6 +548,9 @@ bool FunctionExtractionHelper::adjustTerminatorFromOriginalBlock(llvm::BasicBloc
     assert(originalBlock_pos != m_block_mapping.end());
     auto* originalBlock = originalBlock_pos->second;
     auto* originalTerm = originalBlock->getTerminator();
+    if (llvm::dyn_cast<llvm::UnreachableInst>(originalTerm)) {
+        return false;
+    }
     for (unsigned i = 0; i < originalTerm->getNumSuccessors(); ++i) {
         llvm::BasicBlock* dest = originalTerm->getSuccessor(i);
         if (m_valueMap.find(dest) != m_valueMap.end()) {
@@ -709,6 +712,9 @@ bool FunctionExtractionHelper::areCallArgumentsDataIndep(llvm::CallInst* callIns
 bool FunctionExtractionHelper::isValidTerminator(llvm::TerminatorInst* termInst)
 {
     if (!termInst) {
+        return false;
+    }
+    if (llvm::dyn_cast<llvm::UnreachableInst>(termInst)) {
         return false;
     }
     for (unsigned i = 0; i < termInst->getNumSuccessors(); ++i) {
@@ -1916,7 +1922,9 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
     bool modified = false;
     srand(time(NULL));
     m_M = &M;
-    m_slicer.reset(new Slicer(m_M));
+    if (shortRangeOH) {
+        m_slicer.reset(new Slicer(m_M));
+    }
 
     parse_skip_tags();
     setup_guardMe_metadata();
