@@ -192,6 +192,13 @@ bool isHashableValue(llvm::Value* v)
 
     llvm::Type* valueType = v->getType();
     if (v->getType()->isPointerTy()) {
+        for (auto it = v->user_begin(); it != v->user_end(); ++it) {
+            if (auto* cmp = llvm::dyn_cast<llvm::CmpInst>(*it)) {
+                if (llvm::dyn_cast<llvm::ConstantPointerNull>(cmp->getOperand(1))) {
+                    return false;
+                }
+            }
+        }
         valueType = v->getType()->getPointerElementType();
     }
 
