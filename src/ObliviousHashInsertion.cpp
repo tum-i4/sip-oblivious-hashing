@@ -1248,6 +1248,11 @@ bool ObliviousHashInsertionPass::process_function(llvm::Function* F)
 
 bool ObliviousHashInsertionPass::process_function_with_short_range_oh_enabled(llvm::Function* F)
 {
+    dg::LLVMDependenceGraph* F_dg = m_slicer->getDG(F);
+    if (!F_dg) {
+        llvm::dbgs() << "Skip. No dependence graph for function\n";
+        return false;
+    }
     bool modified = false;
     llvm::DominatorTree& domTree = getAnalysis<llvm::DominatorTreeWrapperPass>(*F).getDomTree();
     FunctionOHPaths paths(F, &domTree);
