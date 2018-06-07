@@ -26,6 +26,9 @@ void add_defData(llvm::Instruction* instr,
     }
     if (llvm::MemoryDef* def = llvm::dyn_cast<llvm::MemoryDef>(access)) {
         auto* defInstr = def->getMemoryInst();
+        if (!defInstr) {
+            return;
+        }
         block = defInstr->getParent() == block ? block : defInstr->getParent();
         if (auto* store = llvm::dyn_cast<llvm::StoreInst>(defInstr)) {
             if (auto* load = llvm::dyn_cast<llvm::LoadInst>(instr)) {
