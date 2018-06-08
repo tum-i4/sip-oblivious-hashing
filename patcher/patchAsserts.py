@@ -2,7 +2,17 @@ from pwn import *
 import sys, subprocess
 import argparse
 import mmap
+import re
 from shutil import copyfile
+def match_placeholders(console_reads):
+    address = r'.*? \#\d+ [ ]+ (0(?:[a-z][a-z]*[0-9]+[a-z0-9]*)) .*? in [ ]+ ((?:[a-z][a-z0-9_]*)) .*?\n'
+    computed = r'\$\d+ .*? (\d+) .*?\n'
+    placeholder = r'\$\d+ .*? (\d+) .*?\n'
+
+    rg = re.compile(address+computed+placeholder,re.IGNORECASE|re.MULTILINE|re.VERBOSE|re.DOTALL)
+    matchobj = rg.findall(console_reads)
+    return matchobj
+
 def patch_binary(orig_name, new_name,debug, args):
     patch_map ={}
     expected_hashes={}
@@ -16,33 +26,51 @@ def patch_binary(orig_name, new_name,debug, args):
         cmd.extend(args_splitted)
     print cmd
     result = subprocess.check_output(cmd).decode("utf-8")
-    lines = result.splitlines()
-    print result
+    tuples = match_placeholders(result)
+    for info in tuples:
+        address = info[0]
+        function = info[1]
+        computed = int(info[2])
+        placeholder = info[3]
+        fld_instr = int(address, 16) - 20
+        expected_hashes[placeholder] = (computed, fld_instr, function)
+    #exit(1)
+    #lines = result.splitlines()
+    #print result
     if "segmentation fault" in result.lower() or "bus error" in result.lower():
         print "GDB patcher segmentation fault detected..."
         exit(1)
-    isThirdLine = False
-    placeholder=""
-    expected_hash = 0
+    #hasFirstLine = False
+    #isThirdLine = False
+    #placeholder=""
+    #expected_hash = 0
 
-    for line in lines:
-        if debug:
-            print line
-        if line.startswith("#1"):
-            words = line.split()
-            fld_instr = int(words[1], 16) - 20
-            function = words[3]
-        if line.startswith("$"):
-            words = line.split()
-            if isThirdLine:
-                placeholder = words[2]
-                isThirdLine = False
-                expected_hashes[placeholder] = (expected_hash, fld_instr, function)
-            else:
-                expected_hash = int(words[2])
-                isThirdLine = True
+    #for line in lines:
+     #   if debug:
+      #      print line
+       # if line.startswith("#1"):
+        #    words = line.split()
+         #   fld_instr = int(words[1], 16) - 20
+          #  function = words[3]
+           # hasFirstLine = True
+       # if hasFirstLine and line.startswith("$"):
+        #    words = line.split()
+         #   if isThirdLine:
+          #      placeholder = words[2]
+           #     hasFirstLine = isThirdLine = False
+            #    expected_hashes[placeholder] = (expected_hash, fld_instr, function)
+           # else:
+            #    try:
+	#	    expected_hash = int(words[2])
+         #           isThirdLine = True
+	#	except TypeError:
+	#	    print 'ERR. Type error expected hash reading from a bad line {}'.format(line)
+         #           break
+        #else:
+         #   hasFirstLine = False
 
-
+    #print expected_hashes
+    #exit(1)
     #e.save(new_name)
     copyfile(orig_name,new_name);
     return expected_hashes
