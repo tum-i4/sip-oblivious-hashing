@@ -12,7 +12,6 @@ void response() {
 
 void assert(long long* hash, long long expected) {
 	//if(DEBUG)
-    //printf("\tAssert: %lld==%lld\n", *hash, expected);
 	if(*hash != expected){
 		void* callstack[128];
 		int i, frames = backtrace(callstack, 128);
@@ -24,6 +23,8 @@ void assert(long long* hash, long long expected) {
 		}
 
 		free(strs);
+
+                printf("\tAssert: %lld==%lld\n", *hash, expected);
 		response();
 	}/*else {
 		//print the last functioni before assert in the trace
