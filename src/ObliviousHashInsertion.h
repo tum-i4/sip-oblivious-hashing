@@ -46,6 +46,7 @@ public:
         FunctionOHPaths::OHPath path;
         llvm::Function* path_assert;
         llvm::Value* hash_variable;
+        bool hash_branches;
         llvm::Function* extracted_path_function;
     };
 
@@ -98,9 +99,11 @@ private:
                                          const FunctionOHPaths::OHPath& path,
                                          bool& data_dep_loop,
                                          bool& arg_reachable_loop,
-                                         bool& global_reachable_loop);
+                                         bool& global_reachable_loop,
+                                         bool& is_loop_path);
   bool can_insert_short_range_assertion(llvm::Function* F,
-                                        const FunctionOHPaths::OHPath& path);
+                                        const FunctionOHPaths::OHPath& path,
+                                        bool& is_loop_path);
   llvm::BasicBlock* get_path_exit_block(llvm::Function* F,
                                         const FunctionOHPaths::OHPath& path);
   FunctionOHPaths::OHPath extendPath(llvm::Function* F, const FunctionOHPaths::OHPath& path);

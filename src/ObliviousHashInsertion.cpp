@@ -561,7 +561,9 @@ bool FunctionExtractionHelper::adjustTerminatorFromOriginalBlock(llvm::BasicBloc
     for (unsigned i = 0; i < originalTerm->getNumSuccessors(); ++i) {
         llvm::BasicBlock* dest = originalTerm->getSuccessor(i);
         if (m_valueMap.find(dest) != m_valueMap.end()) {
-            hashBranch(llvm::dyn_cast<llvm::BranchInst>(originalTerm), dest);
+            if (m_path.hash_branches) {
+                hashBranch(llvm::dyn_cast<llvm::BranchInst>(originalTerm), dest);
+            }
             block->getInstList().push_back(llvm::BranchInst::Create(dest));
             return true;
         }
@@ -1394,9 +1396,11 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
     bool modified = false;
     llvm::dbgs() << "Processing path: ";
     dump_path(path);
+
     const auto& argument_reachable_instr = get_argument_reachable_instructions(F);
     auto& global_reachable_instr = get_global_reachable_instructions(F);
-    const bool can_insert_assertion = can_insert_short_range_assertion(F, path);
+    bool is_loop_path = false;
+    const bool can_insert_assertion = can_insert_short_range_assertion(F, path, is_loop_path);
     if (!can_insert_assertion) {
         llvm::dbgs() << "Can not insert short range assertion to the path. Processing deterministic blocks only.\n";
     }
@@ -1500,6 +1504,7 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
     if (oh_path.path_assert) {
         oh_path.path = path;
         oh_path.hash_variable = local_hash;
+        oh_path.hash_branches = !is_loop_path;
     } else {
         m_function_oh_paths[F].pop_back();
     }
@@ -1668,7 +1673,8 @@ bool ObliviousHashInsertionPass::can_short_range_protect_loop_path(llvm::Functio
                                                                    const FunctionOHPaths::OHPath& path,
                                                                    bool& data_dep_loop,
                                                                    bool& arg_reachable_loop,
-                                                                   bool& global_reachable_loop)
+                                                                   bool& global_reachable_loop,
+                                                                   bool& is_loop_path)
 {
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
     llvm::LoopInfo& LI = getAnalysis<llvm::LoopInfoWrapperPass>(*F).getLoopInfo();
@@ -1680,6 +1686,7 @@ bool ObliviousHashInsertionPass::can_short_range_protect_loop_path(llvm::Functio
     // not process the path
     for (auto& B : path) {
         if (auto* B_loop = LI.getLoopFor(B)) {
+            is_loop_path = true;
             if (F_input_dependency_info->isInputDependentBlock(B)
                     || F_input_dependency_info->isDataDependent(B->getTerminator())) {
                 data_dep_loop = true;
@@ -1699,7 +1706,8 @@ bool ObliviousHashInsertionPass::can_short_range_protect_loop_path(llvm::Functio
 }
 
 bool ObliviousHashInsertionPass::can_insert_short_range_assertion(llvm::Function* F,
-                                                                  const FunctionOHPaths::OHPath& path)
+                                                                  const FunctionOHPaths::OHPath& path,
+                                                                  bool& is_loop_path)
 {
     bool result = true;
 
@@ -1713,7 +1721,7 @@ bool ObliviousHashInsertionPass::can_insert_short_range_assertion(llvm::Function
         add_path_blocks_to_stats(path, stats, true, false, false);
     }
 
-    can_insert &= can_short_range_protect_loop_path(F, path, data_dep_loop, arg_reachable_loop, global_reachable_loop);
+    can_insert &= can_short_range_protect_loop_path(F, path, data_dep_loop, arg_reachable_loop, global_reachable_loop, is_loop_path);
     if (!can_insert) {
         add_path_blocks_to_stats(path, stats, data_dep_loop, arg_reachable_loop, global_reachable_loop);
     }
