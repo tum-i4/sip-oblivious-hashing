@@ -175,6 +175,16 @@ llvm::Loop* get_outermost_loop(llvm::Loop* loop)
     return loop;
 }
 
+llvm::Loop*  get_block_predecessor_loop(llvm::BasicBlock* B, llvm::LoopInfo& LI)
+{
+    for (auto it = pred_begin(B); it != pred_end(B); ++it) {
+        if (auto* loop = LI.getLoopFor(*it)) {
+            return loop;
+        }
+    }
+    return nullptr;
+}
+
 void dump_path(const FunctionOHPaths::OHPath& path)
 {
     for (const auto& B : path) {
@@ -1397,7 +1407,6 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
     bool modified = false;
     llvm::dbgs() << "Processing path: ";
     dump_path(path);
-
     const auto& argument_reachable_instr = get_argument_reachable_instructions(F);
     auto& global_reachable_instr = get_global_reachable_instructions(F);
     bool is_loop_path = false;
@@ -1409,7 +1418,7 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
     m_function_oh_paths[F].push_back(short_range_path_oh());
     short_range_path_oh& oh_path = m_function_oh_paths[F].back();
 
-    llvm::BasicBlock* exit_block = get_path_exit_block(F, path);
+    llvm::BasicBlock* exit_block = get_path_exit_block(F, path, is_loop_path);
     assert(exit_block);
     llvm::dbgs() << "Exit block of the path: " << exit_block->getName() << "\n";
     llvm::LoopInfo &LI = getAnalysis<llvm::LoopInfoWrapperPass>(*F).getLoopInfo();
@@ -1744,10 +1753,15 @@ bool ObliviousHashInsertionPass::can_insert_short_range_assertion(llvm::Function
 }
 
 llvm::BasicBlock* ObliviousHashInsertionPass::get_path_exit_block(llvm::Function* F,
-                                                                  const FunctionOHPaths::OHPath& path)
+                                                                  const FunctionOHPaths::OHPath& path,
+                                                                  bool is_loop_path)
 {
     llvm::LoopInfo &LI = getAnalysis<llvm::LoopInfoWrapperPass>(*F).getLoopInfo();
     auto* loop = LI.getLoopFor(path.back());
+    if (!loop && !is_loop_path) {
+        return path.back();
+    }
+    loop = get_block_predecessor_loop(path.back(), LI);
     if (!loop) {
         return path.back();
     }

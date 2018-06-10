@@ -105,7 +105,8 @@ private:
                                         const FunctionOHPaths::OHPath& path,
                                         bool& is_loop_path);
   llvm::BasicBlock* get_path_exit_block(llvm::Function* F,
-                                        const FunctionOHPaths::OHPath& path);
+                                        const FunctionOHPaths::OHPath& path,
+                                        bool is_loop_path);
   FunctionOHPaths::OHPath extendPath(llvm::Function* F, const FunctionOHPaths::OHPath& path);
   const InstructionSet& get_argument_reachable_instructions(llvm::Function* F);
   InstructionSet& get_global_reachable_instructions(llvm::Function* F);
