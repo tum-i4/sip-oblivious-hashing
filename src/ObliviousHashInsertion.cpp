@@ -711,7 +711,8 @@ bool FunctionExtractionHelper::areCallArgumentsDataIndep(llvm::CallInst* callIns
         }
         if (m_inputDepRes->isDataDependent(inst)
                 || m_argReachableInstrs.find(inst) != m_argReachableInstrs.end()
-                || m_globalReachableInstrs.find(inst) != m_globalReachableInstrs.end()) {
+                || m_globalReachableInstrs.find(inst) != m_globalReachableInstrs.end()
+                || m_inputDepRes->isGlobalDependent(inst)) {
             return false;
         }
     }
@@ -1425,6 +1426,7 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
     InstructionSet path_skipped_instructions;
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
     const auto& skip_instruction_pred = [this, &local_hash, &local_store,
+                                         &F_input_dependency_info,
                                          &argument_reachable_instr,
                                          &global_reachable_instr,
                                          &skipped_instructions,
@@ -1436,6 +1438,11 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
                                                  return true;
                                              }
                                              if (shouldSkipInstruction(instr, path_skipped_instructions)) {
+                                                 return true;
+                                             }
+                                             if (F_input_dependency_info->isGlobalDependent(instr)) {
+                                                 global_reachable_instr.insert(llvm::dyn_cast<llvm::Instruction>(instr));
+                                                 skipped_instructions.insert(llvm::dyn_cast<llvm::Instruction>(instr));
                                                  return true;
                                              }
                                              if (isUsingGlobal(instr, global_reachable_instr)) {
@@ -1666,6 +1673,10 @@ bool ObliviousHashInsertionPass::can_short_range_protect_loop(llvm::Function* F,
         global_reachable_loop = true;
         return false;
     }
+    if (F_input_dependency_info->isGlobalDependent(header->getTerminator())) {
+        global_reachable_loop = true;
+        return false;
+    }
     return true;
 }
 
@@ -1697,6 +1708,10 @@ bool ObliviousHashInsertionPass::can_short_range_protect_loop_path(llvm::Functio
                 arg_reachable_loop = true;
             }
             if (global_reachable_instr.find(B->getTerminator()) != global_reachable_instr.end()) {
+                result = false;
+                global_reachable_loop = true;
+            }
+            if (F_input_dependency_info->isGlobalDependent(B->getTerminator())) {
                 result = false;
                 global_reachable_loop = true;
             }
