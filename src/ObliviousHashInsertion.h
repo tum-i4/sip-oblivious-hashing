@@ -83,7 +83,8 @@ private:
                           const SkipFunctionsPred& skipInstructionPred,
                           bool& local_hash_updated,
                           int path_num,
-                          InstructionSet& skipped_instructions);
+                          InstructionSet& skipped_instructions,
+                          bool hash_branch_inst);
   bool process_block(llvm::Function* F, llvm::BasicBlock* B,
                      bool insert_assert,
                      const SkipFunctionsPred& skipInstructionPred,
