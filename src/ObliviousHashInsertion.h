@@ -64,7 +64,7 @@ private:
   void setup_functions();
   void setup_hash_values();
   void setup_memory_defining_blocks();
-  bool skip_function(llvm::Function& F) const;
+  bool skip_function(llvm::Function& F);
   bool process_function(llvm::Function* F);
   bool process_function_with_short_range_oh_enabled(llvm::Function* F);
   bool process_function_with_global_oh(llvm::Function* F);
@@ -118,6 +118,9 @@ private:
                                         llvm::LoopInfo& LI);
   bool insertHash(llvm::Instruction &I, llvm::Value *v, llvm::Value* hash_value, bool before);
   bool instrumentInst(llvm::Instruction& I, llvm::Value* hash_to_update, bool is_local_hash);
+  bool instrumentBranchInst(llvm::BranchInst* branchInst,
+                            llvm::Value* hash_to_update,
+                            bool is_local_hash);
   template <class CallInstTy>
   bool instrumentCallInst(CallInstTy* call,
                           int& protectedArguments,

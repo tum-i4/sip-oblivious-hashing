@@ -126,6 +126,11 @@ bool shouldSkipInstruction(llvm::Instruction* instr,
             continue;
         }
         if (skipped_instructions.find(op_instr) != skipped_instructions.end()) {
+            if (auto* storeInst = llvm::dyn_cast<llvm::StoreInst>(instr)) {
+                if (op_instr == storeInst->getPointerOperand()) {
+                    continue;
+                }
+            }
             skipped_instructions.insert(instr);
             // TODO: which section of stats add this?
             return true;
@@ -173,7 +178,11 @@ bool skip_short_range_instruction(llvm::Instruction* instr,
         // TODO: which section of stats add this?
         return true;
     }
-    return shouldSkipInstruction(instr, skipped_instructions);
+    if (shouldSkipInstruction(instr, skipped_instructions)) {
+        stats.addUnprotectedInstruction(instr);
+        return true;
+    }
+    return false;
 }
 
 llvm::Loop* get_outermost_loop(llvm::Loop* loop)
@@ -300,7 +309,7 @@ private:
     void replaceUniqueAssertCall(llvm::CallInst* callInst);
     void adjustBlockTerminators();
     bool adjustTerminatorFromOriginalBlock(llvm::BasicBlock* block);
-    llvm::CallInst* getValueHashingCall(llvm::Instruction* start_from, llvm::Value* hashedvalue);
+    std::pair<llvm::CallInst*, llvm::ZExtInst*> getValueHashingCall(llvm::Instruction* start_from, llvm::Value* hashedvalue);
     void eraseBranchHashingInstr(llvm::BranchInst* branchInst);
     bool hashBranch(llvm::BranchInst* originalBranchInst,
                     llvm::BasicBlock* originalBlock);
@@ -566,9 +575,10 @@ void FunctionExtractionHelper::adjustBlockTerminators()
     }
 }
 
-llvm::CallInst* FunctionExtractionHelper::getValueHashingCall(llvm::Instruction* start_from, llvm::Value* hashedvalue)
+std::pair<llvm::CallInst*, llvm::ZExtInst*> FunctionExtractionHelper::getValueHashingCall(llvm::Instruction* start_from, llvm::Value* hashedvalue)
 {
     llvm::CallInst* hashInst = nullptr;
+    llvm::ZExtInst* zextInst = nullptr;
     llvm::Instruction* instr = start_from;
     while (auto* prevInstr = start_from->getParent()->getInstList().getPrevNode(*instr)) {
         if (auto* callInst = llvm::dyn_cast<llvm::CallInst>(prevInstr)) {
@@ -578,6 +588,7 @@ llvm::CallInst* FunctionExtractionHelper::getValueHashingCall(llvm::Instruction*
                     if (auto* hashedInstr = llvm::dyn_cast<llvm::ZExtInst>(callInst->getOperand(1))) {
                         if (hashedInstr->getOperand(0) == hashedvalue) {
                             hashInst = callInst;
+                            zextInst = hashedInstr;
                             break;
                         }
                     }
@@ -586,7 +597,7 @@ llvm::CallInst* FunctionExtractionHelper::getValueHashingCall(llvm::Instruction*
         }
         instr = prevInstr;
     }
-    return hashInst;
+    return std::make_pair(hashInst, zextInst);
 }
 
 void FunctionExtractionHelper::eraseBranchHashingInstr(llvm::BranchInst* branchInst)
@@ -595,9 +606,12 @@ void FunctionExtractionHelper::eraseBranchHashingInstr(llvm::BranchInst* branchI
         return;
     }
 
-    llvm::CallInst* hashInst = getValueHashingCall(branchInst, branchInst->getCondition());
-    if (hashInst) {
-        hashInst->eraseFromParent();
+    std::pair<llvm::CallInst*, llvm::ZExtInst*> hash_pair = getValueHashingCall(branchInst, branchInst->getCondition());
+    if (hash_pair.first) {
+        hash_pair.first->eraseFromParent();
+    }
+    if (hash_pair.second) {
+        hash_pair.second->eraseFromParent();
     }
 }
 
@@ -619,6 +633,8 @@ bool FunctionExtractionHelper::adjustTerminatorFromOriginalBlock(llvm::BasicBloc
             if (m_path.hash_branches) {
                 if (!hashBranch(llvm::dyn_cast<llvm::BranchInst>(originalTerm), dest)) {
                     eraseBranchHashingInstr(llvm::dyn_cast<llvm::BranchInst>(originalTerm));
+                } else {
+                    m_stats.addShortRangeProtectedInstruction(originalTerm);
                 }
             }
             block->getInstList().push_back(llvm::BranchInst::Create(dest) );
@@ -687,9 +703,9 @@ bool FunctionExtractionHelper::hashBranch(llvm::BranchInst* originalBranchInst,
 
 llvm::Function* FunctionExtractionHelper::getBranchInstructionHashFunction(llvm::BranchInst* branchInst)
 {
-    llvm::CallInst* hashInstr = getValueHashingCall(branchInst, branchInst->getCondition());
-    if (hashInstr) {
-        return hashInstr->getCalledFunction();
+    auto hashInstr = getValueHashingCall(branchInst, branchInst->getCondition());
+    if (hashInstr.first) {
+        return hashInstr.first->getCalledFunction();
     }
     return nullptr;
 }
@@ -996,10 +1012,6 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I,
         isCallGuard = isInstAGuard(I);
     } else if (auto* getElemPtr = llvm::dyn_cast<llvm::GetElementPtrInst>(&I)) {
         hashInserted = instrumentGetElementPtrInst(getElemPtr, hash_to_update);
-    } else if (auto* branchInst = llvm::dyn_cast<llvm::BranchInst>(&I)) {
-        if (canHashBranchInst(branchInst)) {
-            hashInserted |= insertHash(I, branchInst->getCondition(), hash_to_update, true);
-        }
     } else if (!llvm::dyn_cast<llvm::PHINode>(&I)) {
         for (auto op = I.op_begin(); op != I.op_end(); ++op) {
             auto* val = llvm::dyn_cast<llvm::Value>(&*op);
@@ -1012,7 +1024,7 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I,
     if (hashInserted) {
         is_local_hash ? m_shortRangeHashedInstructions.insert(&I) : m_globalHashedInstructions.insert(&I);
         is_local_hash ? stats.addNumberOfShortRangeHashCalls(1) : stats.addNumberOfHashCalls(1);
-        is_local_hash ? stats.addShortRangeProtectedInstruction(&I) : stats.addNumberOfProtectedInstructions(1);
+        is_local_hash ? stats.addShortRangeProtectedInstruction(&I) : stats.addOhProtectedInstruction(&I);
         if (isCallGuard) {
             // When call is a guard we compute implicit OH stats
             // See #37
@@ -1040,6 +1052,26 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I,
 
     return hashInserted;
 }
+
+bool ObliviousHashInsertionPass::instrumentBranchInst(llvm::BranchInst* branchInst,
+                                                      llvm::Value* hash_to_update,
+                                                      bool is_local_hash)
+{
+    bool hashInserted = false;
+    if (is_local_hash) {
+        if (m_shortRangeHashedInstructions.find(branchInst) != m_shortRangeHashedInstructions.end()) {
+            return false;
+        }
+    } else if (m_globalHashedInstructions.find(branchInst) != m_globalHashedInstructions.end()) {
+        return false;
+    }
+
+    if (canHashBranchInst(branchInst)) {
+        hashInserted |= insertHash(*branchInst, branchInst->getCondition(), hash_to_update, true);
+    }
+    return hashInserted;
+}
+
 
 template <class CallInstTy>
 bool ObliviousHashInsertionPass::instrumentCallInst(CallInstTy* call, 
@@ -1276,7 +1308,7 @@ void ObliviousHashInsertionPass::setup_memory_defining_blocks()
     }
 }
 
-bool ObliviousHashInsertionPass::skip_function(llvm::Function& F) const
+bool ObliviousHashInsertionPass::skip_function(llvm::Function& F)
 {
     if (F.isDeclaration() || F.isIntrinsic()) {
         return true;
@@ -1286,12 +1318,22 @@ bool ObliviousHashInsertionPass::skip_function(llvm::Function& F) const
     }
     if (m_function_filter_info->get_functions().size() != 0 && !m_function_filter_info->is_function(&F)) {
         llvm::dbgs() << " Skipping function per FilterFunctionPass:" << F.getName() << "\n";
+        stats.addFilteredFunction(&F);
         return true;
     }
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(&F);
     if (!F_input_dependency_info) {
         llvm::dbgs() << "Skipping function. No input dep info " << F.getName() << "\n";
+        stats.addFunctionWithNoInputDep(&F);
         return true;
+    }
+    if (shortRangeOH) {
+        dg::LLVMDependenceGraph* F_dg = m_slicer->getDG(&F);
+        if (!F_dg) {
+            stats.addFunctionWithNoDg(&F);
+            llvm::dbgs() << "Skip. No dependence graph for function " << F.getName() << "\n";
+            return true;
+        }
     }
     return F_input_dependency_info->isExtractedFunction();
 }
@@ -1309,11 +1351,6 @@ bool ObliviousHashInsertionPass::process_function(llvm::Function* F)
 
 bool ObliviousHashInsertionPass::process_function_with_short_range_oh_enabled(llvm::Function* F)
 {
-    dg::LLVMDependenceGraph* F_dg = m_slicer->getDG(F);
-    if (!F_dg) {
-        llvm::dbgs() << "Skip. No dependence graph for function\n";
-        return false;
-    }
     bool modified = false;
     llvm::DominatorTree& domTree = getAnalysis<llvm::DominatorTreeWrapperPass>(*F).getDomTree();
     FunctionOHPaths paths(F, &domTree);
@@ -1482,13 +1519,8 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
     InstructionSet& skipped_instructions = m_function_skipped_instructions[F];
     InstructionSet path_skipped_instructions;
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
-    const auto& oh_skip_instruction_pred = [this, &local_hash, &local_store,
-                                            &path_skipped_instructions,
-                                            &skipped_instructions]
-                                        (llvm::Instruction* instr)
-                                        {
-                                            return false;
-                                        };
+    const auto& oh_skip_instruction_pred = [this]  (llvm::Instruction* instr)
+                                                { return false; };
     const auto& short_range_skip_instruction_pred = [this, &local_hash, &local_store,
                                          &F_input_dependency_info,
                                          &argument_reachable_instr,
@@ -1502,20 +1534,26 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
                                                  return true;
                                              }
                                              if (shouldSkipInstruction(instr, path_skipped_instructions)) {
+                                                 stats.addUnprotectedInstruction(instr);
                                                  return true;
                                              }
                                              if (F_input_dependency_info->isGlobalDependent(instr)) {
                                                  global_reachable_instr.insert(llvm::dyn_cast<llvm::Instruction>(instr));
                                                  skipped_instructions.insert(llvm::dyn_cast<llvm::Instruction>(instr));
+                                                 stats.addUnprotectedGlobalReachableInstruction(instr);
                                                  return true;
                                              }
                                              if (isUsingGlobal(instr, global_reachable_instr)) {
                                                  skipped_instructions.insert(instr);
                                                  global_reachable_instr.insert(instr);
                                                  if (auto* store = llvm::dyn_cast<llvm::StoreInst>(instr)) {
-                                                     skipped_instructions.insert(llvm::dyn_cast<llvm::Instruction>(store->getPointerOperand()));
-                                                     global_reachable_instr.insert(llvm::dyn_cast<llvm::Instruction>(store->getPointerOperand()));
+                                                     if (auto* storeTo = llvm::dyn_cast<llvm::Instruction>(store->getPointerOperand())) {
+                                                         skipped_instructions.insert(storeTo);
+                                                         global_reachable_instr.insert(storeTo);
+                                                         stats.addUnprotectedGlobalReachableInstruction(storeTo);
+                                                     }
                                                  }
+                                                 stats.addUnprotectedGlobalReachableInstruction(instr);
                                                  return true;
                                              }
 
@@ -1523,6 +1561,7 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
                                              if (pos != m_function_memory_defining_blocks.end()) {
                                                  const auto& def_infos = pos->second.getDefinitionData(instr);
                                                  if (isDefinedInAnotherPath(def_infos, path, path_skipped_instructions, instr)) {
+                                                     stats.addUnprotectedInstruction(instr);
                                                      return true;
                                                  }
                                              }
@@ -1553,8 +1592,8 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
         }
     }
     if (!insert_assertion && modified && has_inputdep_block && !FunctionOHPaths::pathContainsBlock(path, exit_block)) {
-        modified |= process_path_block(F, exit_block, local_hash, true,
-                                       [] (llvm::Instruction* instr) {return true;}, local_hash_updated,
+        modified |= process_path_block(F, exit_block, local_hash, true, short_range_skip_instruction_pred,
+                                       local_hash_updated,
                                        path_num, skipped_instructions, false);
         path.push_back(exit_block);
     }
@@ -1589,6 +1628,10 @@ bool ObliviousHashInsertionPass::can_instrument_instruction(llvm::Function* F,
                                                             InstructionSet& dataDepInstrs)
 {
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
+    if (!F_input_dependency_info->isInputDependent(I)
+        && !F_input_dependency_info->isInputIndependent(I)) {
+        return false;
+    }
     if (F_input_dependency_info->isDataDependent(I)) {
         stats.addDataDependentInstruction(I);
         dataDepInstrs.insert(I);
@@ -1598,10 +1641,6 @@ bool ObliviousHashInsertionPass::can_instrument_instruction(llvm::Function* F,
         return false;
     }
     if (skipInstruction(*I) || skipInstructionPred(I)) {
-        return false;
-    }
-    if (!F_input_dependency_info->isInputDependent(I)
-        && !F_input_dependency_info->isInputIndependent(I)) {
         return false;
     }
     return true;
@@ -1622,12 +1661,16 @@ bool ObliviousHashInsertionPass::process_path_block(llvm::Function* F, llvm::Bas
         if (can_instrument_instruction(F, &I, skipInstructionPred, skipped_instructions)) {
             local_hash_updated |= instrumentInst(I, hash_value, true);
             modified |= local_hash_updated;
-        } else if (hash_branch_inst && llvm::dyn_cast<llvm::BranchInst>(&I)) {
-            if (instrumentInst(I, hash_value, true)) {
-                local_hash_updated = true;
-                skipped_instructions.insert(B->getInstList().getPrevNode(I));
+        } else if (llvm::dyn_cast<llvm::BranchInst>(&I)) {
+            if (hash_branch_inst) {
+                if (instrumentBranchInst(llvm::dyn_cast<llvm::BranchInst>(&I), hash_value, true)) {
+                    local_hash_updated = true;
+                    skipped_instructions.insert(B->getInstList().getPrevNode(I));
+                }
+                modified |= local_hash_updated;
+            } else {
+                stats.addNonHashableInstruction(&I);
             }
-            modified |= local_hash_updated;
         }
         if (!insert_assert || !local_hash_updated || &I != B->getTerminator()) {
             continue;
@@ -2072,6 +2115,23 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
         extract_path_functions();
         insert_calls_for_path_functions();
     }
+    //llvm::dbgs() << "****************\n";
+    //for (auto& F : M) {
+    //    if (skip_function(F)) {
+    //        continue;
+    //    }
+    //    auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(&F);
+    //    for (auto& B : F) {
+    //        for (auto& I : B) {
+    //            if (!F_input_dependency_info->isInputDependent(&I)
+    //                    && !F_input_dependency_info->isInputIndependent(&I)) {
+    //                continue;
+    //            }
+    //            llvm::dbgs() << F.getName() << B.getName() << I << "\n";
+    //        }
+    //    }
+    //}
+    //llvm::dbgs() << "****************\n";
 
     if (!DumpOHStat.empty()) {
         dbgs() << "OH stats is requested, dumping stat file...\n";
