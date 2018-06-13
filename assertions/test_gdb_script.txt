@@ -1,0 +1,43 @@
+define processed_placeholder
+    if $placeholder_list
+        set $i = 0
+        while $i<$idx
+            if $placeholder_list[$i]==expected
+                continue
+            else
+                set $i=$i+1
+            end
+        end
+    set $not_processed=1
+    end
+end
+
+define check_placeholder
+    if $placeholder_list
+        if $not_processed==1
+            return
+            continue
+        end
+    else
+        set $placeholder_list = (long long *) malloc (1000 * sizeof (long long))
+    end
+    set $placeholder_list[$idx]=expected
+    set $idx=$idx+1
+    bt
+    print *hash
+    print expected
+    return
+    continue
+end
+
+set $not_processed=0
+set $idx=0
+b assert if processed_placeholder && $not_processed==1
+commands
+print "In assert"
+check_placeholder
+end
+run
+q
+
+
