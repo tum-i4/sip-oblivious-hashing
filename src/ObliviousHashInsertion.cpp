@@ -1627,9 +1627,13 @@ bool ObliviousHashInsertionPass::can_instrument_instruction(llvm::Function* F,
                                                             const SkipFunctionsPred& skipInstructionPred,
                                                             InstructionSet& dataDepInstrs)
 {
+    if (I->getMetadata("sc_guard")) {
+        return true;
+    }
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
     if (!F_input_dependency_info->isInputDependent(I)
         && !F_input_dependency_info->isInputIndependent(I)) {
+        
         return false;
     }
     if (F_input_dependency_info->isDataDependent(I)) {
@@ -1658,6 +1662,13 @@ bool ObliviousHashInsertionPass::process_path_block(llvm::Function* F, llvm::Bas
     assert(hash_value);
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
     for (auto &I : *B) {
+        if (auto* callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
+            if (auto* calledF = callInst->getCalledFunction()) {
+                if (calledF->getName() == "guardMe") {
+                    llvm::dbgs() << "Stop\n";
+                }
+            }
+        }
         if (can_instrument_instruction(F, &I, skipInstructionPred, skipped_instructions)) {
             local_hash_updated |= instrumentInst(I, hash_value, true);
             modified |= local_hash_updated;
@@ -1693,6 +1704,14 @@ bool ObliviousHashInsertionPass::process_block(llvm::Function* F, llvm::BasicBlo
     bool modified = false;
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
     for (auto &I : *B) {
+        if (auto* callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
+            if (auto* calledF = callInst->getCalledFunction()) {
+                if (calledF->getName() == "guardMe") {
+                    llvm::dbgs() << "Stop\n";
+                }
+            }
+        }
+
         if (!can_instrument_instruction(F, &I, skipInstructionPred, skipped_instructions)) {
             continue;
         }
