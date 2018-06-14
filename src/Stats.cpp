@@ -347,7 +347,7 @@ void OHStats::addSCShortRangeProtectedProtectedGuardInstr(llvm::Instruction* I, 
     if (m_scProtectedGuardInstructions.insert(I).second) {
         numberOfShortRangeImplicitlyProtectedInstructions += checkeeSize;
         addNumberOfShortRangeProtectedGuardInstructions(1);
-        addNumberOfShortRangeProtectedArguments(protectedArguments);
+        addNumberOfShortRangeProtectedGuardArguments(protectedArguments);
     }
 }
 

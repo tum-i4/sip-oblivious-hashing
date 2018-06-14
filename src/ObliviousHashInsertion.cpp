@@ -1108,7 +1108,8 @@ bool ObliviousHashInsertionPass::instrumentCallInst(CallInstTy* call,
                 ++protectedArguments;
             }
         } else if (auto *load = llvm::dyn_cast<llvm::LoadInst>(operand)) {
-            if (!m_input_dependency_info->isInputDependent(load)) {
+            if (!m_input_dependency_info->isInputDependent(load)
+                    || load->getMetadata("sc_guard")) {
                 argHashed = insertHash(*load, load, hash_value, false);
                 if (argHashed) {
                     ++protectedArguments;
