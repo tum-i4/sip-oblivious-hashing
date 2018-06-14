@@ -1032,15 +1032,18 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I,
             if (checkeeSize > 0) {
                 dbgs()<<"Implicit protection instructions to add:"<<checkeeSize<<"\n";
             }
-            is_local_hash ? stats.addNumberOfShortRangeImplicitlyProtectedInstructions(checkeeSize)
-                          : stats.addNumberOfImplicitlyProtectedInstructions(checkeeSize);
+            is_local_hash ? stats.addSCShortRangeProtectedProtectedGuardInstr(&I, checkeeSize, protectedArguments)
+                          : stats.addSCProtectedGuardInstr(&I, checkeeSize, protectedArguments);
 
-            //#20 increment number of protected guard instruction,
+            //is_local_hash ? stats.addNumberOfShortRangeImplicitlyProtectedInstructions(&I, checkeeSize)
+            //              : stats.addNumberOfImplicitlyProtectedInstructions(&I, checkeeSize);
+            ////#20 increment number of protected guard instruction,
             // when at least one of the guard call arguments are
             // incorporated into the hash
-            is_local_hash ? stats.addNumberOfShortRangeProtectedGuardInstructions(1) : stats.addNumberOfProtectedGuardInstructions(1);
-            is_local_hash ? stats.addNumberOfShortRangeProtectedGuardArguments(protectedArguments)
-                       : stats.addNumberOfProtectedGuardArguments(protectedArguments);
+            //is_local_hash ? stats.addNumberOfShortRangeProtectedGuardInstructions(&I, 1)
+            //              : stats.addNumberOfProtectedGuardInstructions(&I, 1);
+            //is_local_hash ? stats.addNumberOfShortRangeProtectedGuardArguments(protectedArguments)
+            //              : stats.addNumberOfProtectedGuardArguments(protectedArguments);
         } else {
             is_local_hash ? stats.addNumberOfShortRangeProtectedArguments(protectedArguments) : stats.addNumberOfProtectedArguments(protectedArguments);
         }

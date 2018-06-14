@@ -315,17 +315,42 @@ void OHStats::addNumberOfHashCalls(int value){
 void OHStats::addNumberOfAssertCalls(int value){
 	this->numberOfAssertCalls += value;
 }
-void OHStats::addNumberOfImplicitlyProtectedInstructions(int value){
-	this->numberOfImplicitlyProtectedInstructions += value;
+void OHStats::addNumberOfImplicitlyProtectedInstructions(llvm::Instruction* guardInst, int value){
+    if (m_scProtectedGuardInstructions.insert(guardInst).second) {
+        this->numberOfImplicitlyProtectedInstructions += value;
+        addNumberOfProtectedGuardInstructions(1);
+    }
 }
 void OHStats::addNumberOfProtectedGuardInstructions(int value){
 	this->numberOfProtectedGuardInstructions+=value;
 }
 
-void OHStats::addNumberOfShortRangeImplicitlyProtectedInstructions(int value)
+void OHStats::addNumberOfShortRangeImplicitlyProtectedInstructions(llvm::Instruction* guardInst, int value)
 {
-	numberOfShortRangeImplicitlyProtectedInstructions += value;
+    if (m_scProtectedGuardInstructions.insert(guardInst).second) {
+        numberOfShortRangeImplicitlyProtectedInstructions += value;
+        addNumberOfShortRangeProtectedGuardInstructions(1);
+    }
 }
+
+void OHStats::addSCProtectedGuardInstr(llvm::Instruction* I, int checkeeSize, int protectedArguments)
+{
+    if (m_scProtectedGuardInstructions.insert(I).second) {
+        this->numberOfImplicitlyProtectedInstructions += checkeeSize;
+        addNumberOfProtectedGuardInstructions(1);
+        addNumberOfProtectedGuardArguments(protectedArguments);
+    }
+}
+
+void OHStats::addSCShortRangeProtectedProtectedGuardInstr(llvm::Instruction* I, int checkeeSize, int protectedArguments)
+{
+    if (m_scProtectedGuardInstructions.insert(I).second) {
+        numberOfShortRangeImplicitlyProtectedInstructions += checkeeSize;
+        addNumberOfShortRangeProtectedGuardInstructions(1);
+        addNumberOfShortRangeProtectedArguments(protectedArguments);
+    }
+}
+
 
 //void OHStats::addNumberOfShortRangeProtectedInstructions(int value)
 //{

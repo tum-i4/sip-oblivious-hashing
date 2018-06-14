@@ -62,6 +62,8 @@ private:
     InstructionSet m_unprotectedGlobalReachableInstructions;
     InstructionSet m_unprotectedInstructions;
 
+    InstructionSet m_scProtectedGuardInstructions;
+
     using FunctionSet = std::unordered_set<llvm::Function*>;
     FunctionSet m_functionsWithNoDG;
     FunctionSet m_filteredFunctions;
@@ -93,13 +95,16 @@ public:
     void addUnprotectedGlobalReachableInstruction(llvm::Instruction* I);
     void addUnprotectedInstruction(llvm::Instruction* I);
 
+    void addSCProtectedGuardInstr(llvm::Instruction* I, int checkeeSize, int protectedArguments);
+    void addSCShortRangeProtectedProtectedGuardInstr(llvm::Instruction* I, int checkeeSize, int protectedArguments);
+
     void addFunctionWithNoDg(llvm::Function* F);
     void addFilteredFunction(llvm::Function* F);
     void addFunctionWithNoInputDep(llvm::Function* F);
 
     void eraseFromUnprotectedBlocks(llvm::BasicBlock* B);
 
-    void addNumberOfImplicitlyProtectedInstructions(int);
+    void addNumberOfImplicitlyProtectedInstructions(llvm::Instruction* guardInst, int);
     void addNumberOfProtectedInstructions(int);
     void addNumberOfProtectedArguments(int);
     void setNumberOfHashVariables(int);
@@ -108,7 +113,7 @@ public:
     void addNumberOfProtectedGuardInstructions(int);
     void addNumberOfProtectedGuardArguments(int);
 
-    void addNumberOfShortRangeImplicitlyProtectedInstructions(int);
+    void addNumberOfShortRangeImplicitlyProtectedInstructions(llvm::Instruction* guardInst, int);
     void addNumberOfShortRangeProtectedArguments(int);
     void addNumberOfShortRangeHashCalls(int);
     void addNumberOfShortRangeAssertCalls(int);
