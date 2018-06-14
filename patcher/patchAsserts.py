@@ -13,19 +13,20 @@ def match_placeholders(console_reads):
     matchobj = rg.findall(console_reads)
     return matchobj
 
-def patch_binary(orig_name, new_name,debug, args):
+def patch_binary(orig_name, new_name,debug, args, script):
     patch_map ={}
     expected_hashes={}
     #e = ELF(orig_name)
     #result = subprocess.check_output(["gdb", orig_name, "-x", "/home/anahitik/SIP/sip-oblivious-hashing/assertions/gdb_script.txt"]).decode("utf-8")
-    
-    cmd = ["gdb", orig_name, "-x", "/home/sip/sip-oblivious-hashing/assertions/gdb_script.txt"]
+    #cmd = ["gdb", orig_name, "-x", "/home/sip/sip-oblivious-hashing/assertions/gdb_script.txt"]
+    cmd = ["gdb", orig_name, "-x", script]
     if args !='':
         args_splitted = args.split();
-        cmd = ["gdb","-x", "/home/sip/sip-oblivious-hashing/assertions/gdb_script.txt",'--args',orig_name]
+        cmd = ["gdb","-x", script,'--args',orig_name]
         cmd.extend(args_splitted)
     print cmd
     result = subprocess.check_output(cmd).decode("utf-8")
+    print "gdb ran. Parsing results"
     tuples = match_placeholders(result)
     for info in tuples:
         address = info[0]
@@ -86,6 +87,7 @@ def patch_address(mm, addr, patch_value):
     mm.seek(addr,os.SEEK_SET)
     mm.write(patch_value)
 def patch_placeholders(filename, placeholders, debug):
+    print "patching placeholders"
     with open(filename, 'r+b') as f:
         mm = mmap.mmap(f.fileno(), 0)
         patch_count = 0
@@ -147,9 +149,13 @@ def main():
     parser.add_argument('-d',action='store', dest='debug', help='Print debug messages',required=False,type=bool, default=False)
     parser.add_argument('-s',action='store', dest='oh_stats_file', help='OH stats file to get the number of patches to be verified at the end of the process',required=False)
     parser.add_argument('-g',action='store', dest='args', required= False, type=str,default='',help='Running arguments to the program to patch')
+    parser.add_argument('-p', action='store', dest='script', required= False, type=str,
+                        default='/home/sip/sip-oblivious-hashing/assertions/gdb_script.txt'
+                        #'/home/anahitik/SIP/sip-oblivious-hashing/assertions/gdb_script.txt',
+                        help='gdb script to use when performing patching')
 
     results = parser.parse_args()
-    placeholders = patch_binary(results.binary,results.new_binary, results.debug,results.args)
+    placeholders = patch_binary(results.binary,results.new_binary, results.debug,results.args, results.script)
     count_patched = patch_placeholders(results.new_binary,placeholders, results.debug)
     print "Patched:",count_patched," in ",results.new_binary," saved as:",results.new_binary
     for placeholder in placeholders:
