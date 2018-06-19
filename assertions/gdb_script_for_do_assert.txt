@@ -6,8 +6,10 @@ end
 b do_assert
 commands
 bt
+echo "BEGIN-PLACEHOLDER"
 print *hash
 print expected
+echo "END-PLACEHOLDER"
 continue
 end
 run

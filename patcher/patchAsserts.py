@@ -5,12 +5,14 @@ import mmap
 import re
 from shutil import copyfile
 def match_placeholders(console_reads):
-    address = r'.*? \#\d+ [ ]+ (0(?:[a-z][a-z]*[0-9]+[a-z0-9]*)) .*? in [ ]+ ((?:[a-z][a-z0-9_]*)) .*?\n'
+    address = r'BEGIN-PLACEHOLDER\n\#\d+ [ ]+ (0(?:[a-z][a-z]*[0-9]+[a-z0-9]*)) .*? in [ ]+ ((?:[a-z][a-z0-9_]*)) .*?\n'
     computed = r'\$\d+ .*? (\d+) .*?\n'
-    placeholder = r'\$\d+ .*? (\d+) .*?\n'
-
+    placeholder = r'\$\d+ .*? (\d+) .*?\nEND-PLACEHOLDER\n'
+    print 'Begin reg compile'
     rg = re.compile(address+computed+placeholder,re.IGNORECASE|re.MULTILINE|re.VERBOSE|re.DOTALL)
+    print "Begin find all"
     matchobj = rg.findall(console_reads)
+    print "End find all"
     return matchobj
 
 def patch_binary(orig_name, new_name,debug, args, script):
@@ -27,7 +29,18 @@ def patch_binary(orig_name, new_name,debug, args, script):
     print cmd
     result = subprocess.check_output(cmd).decode("utf-8")
     print "gdb ran. Parsing results"
+    line_print = False
+    for line in result.splitlines():
+        if line == 'BEGIN-PLACEHOLDER':
+            line_print = True
+        elif line == 'END-PLACEHOLDER':
+            line_print = False
+        if line_print:
+            print line
+        
+    print "Begin matching placeholders"
     tuples = match_placeholders(result)
+    print "End matching placeholders"
     for info in tuples:
         address = info[0]
         function = info[1]
