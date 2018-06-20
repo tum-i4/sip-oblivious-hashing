@@ -30,9 +30,8 @@ def patch_binary(orig_name, new_name,debug, args, script):
     print cmd
     #result = subprocess.check_output(cmd).decode("utf-8")
     p = subprocess.Popen(cmd, stderr =None,stdout=subprocess.PIPE)
-    result = p.communicate();
+    result, err = p.communicate();
     print "gdb ran. Parsing results"
-    print 'GDB process err: ',err
     line_print = False
     placeholder_results = ''
     pre_line = ''
