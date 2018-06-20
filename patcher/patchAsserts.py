@@ -5,9 +5,9 @@ import mmap
 import re
 from shutil import copyfile
 def match_placeholders(console_reads):
-    address = r'BEGIN-PLACEHOLDER\n\#\d+ [ ]+ (0(?:[a-z][a-z]*[0-9]+[a-z0-9]*)) .*? in [ ]+ ((?:[a-z][a-z0-9_]*)) .*?\n'
+    address = r'.*? \#\d+ [ ]+ (0(?:[a-z][a-z]*[0-9]+[a-z0-9]*)) .*? in [ ]+ ((?:[a-z][a-z0-9_]*)) .*?\n'
     computed = r'\$\d+ .*? (\d+) .*?\n'
-    placeholder = r'\$\d+ .*? (\d+) .*?\nEND-PLACEHOLDER\n'
+    placeholder = r'\$\d+ .*? (\d+) .*?\n'
     print 'Begin reg compile'
     rg = re.compile(address+computed+placeholder,re.IGNORECASE|re.MULTILINE|re.VERBOSE|re.DOTALL)
     print "Begin find all"
@@ -23,24 +23,40 @@ def patch_binary(orig_name, new_name,debug, args, script):
     #cmd = ["gdb", orig_name, "-x", "/home/sip/sip-oblivious-hashing/assertions/gdb_script.txt"]
     cmd = ["gdb", orig_name, "-x", script]
     if args !='':
+        print 'Args provided ', args
         args_splitted = args.split();
         cmd = ["gdb","-x", script,'--args',orig_name]
         cmd.extend(args_splitted)
     print cmd
-    result = subprocess.check_output(cmd).decode("utf-8")
+    #result = subprocess.check_output(cmd).decode("utf-8")
+    p = subprocess.Popen(cmd, stderr =None,stdout=subprocess.PIPE)
+    result = p.communicate();
     print "gdb ran. Parsing results"
+    print 'GDB process err: ',err
     line_print = False
+    placeholder_results = ''
+    pre_line = ''
     for line in result.splitlines():
         if line == 'BEGIN-PLACEHOLDER':
+            placeholder_results += pre_line+"\n"
             line_print = True
         elif line == 'END-PLACEHOLDER':
             line_print = False
-        if line_print:
-            print line
-        
+        elif line_print:
+            #print line
+            placeholder_results+=line+"\n"
+        pre_line = line
+    
+
+    if debug:
+        print placeholder_results    
     print "Begin matching placeholders"
-    tuples = match_placeholders(result)
+    tuples = match_placeholders(placeholder_results)
+    if len(tuples) == 0 :
+        print "NO PLACEHOLDERS WERE MATCHED!"
     print "End matching placeholders"
+    if debug:
+        print tuples
     for info in tuples:
         address = info[0]
         function = info[1]
@@ -118,11 +134,16 @@ def patch_placeholders(filename, placeholders, debug):
                 print str(placeholder) + ' placeholder not found'
             else :
                 patch_count = patch_count + 1
-            while address!=-1:
+            if str(placeholder).strip() == str(expected_hash).strip():
+                #when palceholder is the same with the expected hash we fall into an endless loop
                 if debug:
-                    print 'Found placeholder '+placeholder+' at ' + hex(address) + ' trying to patch it with ' + str(expected_hash)
-                patch_address(mm,address,patch_value)
-                address = find_placeholder(mm, search_bytes)
+                    print 'Placeholder [{}] with the same value as the expected hash [{}] is being skipped'.format(placeholder,expected_hash)
+            else:
+                while address!=-1:
+                    if debug:
+                        print 'Found placeholder '+placeholder+' at ' + hex(address) + ' trying to patch it with ' + str(expected_hash)
+                    patch_address(mm,address,patch_value)
+                    address = find_placeholder(mm, search_bytes)
         return patch_count
 
 def get_function_info(file_name, function_name):
