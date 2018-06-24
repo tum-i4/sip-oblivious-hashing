@@ -2,7 +2,7 @@ from pwn import *
 import sys, subprocess
 import argparse
 
-
+file_dir = os.path.dirname(os.path.abspath(__file__))
 
 def patch_binary(orig_name, new_name):
     fld_instrs = []
@@ -11,7 +11,7 @@ def patch_binary(orig_name, new_name):
     #orig_name = sys.argv[1]
     #new_name = sys.argv[2]
     e = ELF(orig_name)
-    result = subprocess.check_output(["gdb", orig_name, "-x", "/home/sip/sip-oblivious-hashing/assertions/gdb_script.txt"]).decode("utf-8")
+    result = subprocess.check_output(["gdb", orig_name, "-x", file_dir + "/gdb_script.txt"]).decode("utf-8")
     lines = result.splitlines()
     print result
     if "segmentation fault" in result.lower() or "bus error" in result.lower():
