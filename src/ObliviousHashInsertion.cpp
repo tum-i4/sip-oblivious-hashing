@@ -6,7 +6,7 @@
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/AssumptionCache.h"
 #include "llvm/Analysis/BasicAliasAnalysis.h"
-#include "llvm/Transforms/Utils/MemorySSA.h"
+#include "llvm/Analysis/MemorySSA.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Dominators.h"
@@ -425,7 +425,7 @@ void FunctionExtractionHelper::clonePathBlocks(const FunctionOHPaths::OHPath& pa
             auto* block = llvm::BasicBlock::Create(m_pathF->getParent()->getContext(),
                                                    path_B->getName(),
                                                    m_pathF);
-            m_valueMap.insert(std::make_pair(path_B, llvm::WeakVH(block)));
+            m_valueMap.insert(std::make_pair(path_B, llvm::WeakTrackingVH(block)));
             m_block_mapping.insert(std::make_pair(block, path_B));
         }
     }
@@ -466,7 +466,7 @@ void FunctionExtractionHelper::clonePathInstructions()
             }
             auto* cloned_I = I.clone();
             instructions.push_back(cloned_I);
-            m_valueMap.insert(std::make_pair(&I, llvm::WeakVH(cloned_I)));
+            m_valueMap.insert(std::make_pair(&I, llvm::WeakTrackingVH(cloned_I)));
         }
     }
 }
@@ -506,9 +506,9 @@ void FunctionExtractionHelper::createMissingOperands(llvm::Instruction* instr)
         if (auto* ptrTy = llvm::dyn_cast<llvm::PointerType>(type)) {
             type = ptrTy->getElementType();
         }
-        auto* var = new llvm::AllocaInst(type, 0, 8);
+        auto* var = new llvm::AllocaInst(type, 0);
         entry_block->getInstList().push_front(var);
-        m_valueMap.insert(std::make_pair(val, llvm::WeakVH(var)));
+        m_valueMap.insert(std::make_pair(val, llvm::WeakTrackingVH(var)));
     }
 
 }
@@ -1515,7 +1515,7 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
 
     llvm::BasicBlock* entry_block = path.front();
     llvm::LLVMContext &Ctx = entry_block->getContext();
-    auto local_hash = new llvm::AllocaInst(llvm::Type::getInt64Ty(Ctx), 0,8, "local_hash");
+    auto local_hash = new llvm::AllocaInst(llvm::Type::getInt64Ty(Ctx), 0, nullptr, "local_hash");
     auto alloca_pos = entry_block->getInstList().insert(entry_block->begin(), local_hash);
     auto local_store = new llvm::StoreInst(llvm::ConstantInt::get(llvm::Type::getInt64Ty(Ctx), 0), local_hash, false, 8);
     entry_block->getInstList().insertAfter(alloca_pos, local_store);

@@ -1,6 +1,6 @@
 #include "MemoryDefinitionData.h"
 
-#include "llvm/Transforms/Utils/MemorySSA.h"
+#include "llvm/Analysis/MemorySSA.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/IR/Instructions.h"
