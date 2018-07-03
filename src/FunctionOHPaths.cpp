@@ -5,6 +5,8 @@
 #include "llvm/IR/Module.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/IR/Dominators.h"
+#include "llvm/Analysis/LoopInfo.h"
 
 #include "llvm/Analysis/CFGPrinter.h"
 #include "llvm/Analysis/CFG.h"
@@ -73,20 +75,28 @@ namespace llvm {
 template <>
 struct GraphTraits<wrappers::OHPathsFunction*> : public GraphTraits<BasicBlock*>
 {
-    static NodeType* getEntryNode(wrappers::OHPathsFunction* OHF) {return &OHF->get_function()->getEntryBlock();}
-    typedef Function::iterator nodes_iterator;
-    static nodes_iterator nodes_begin(wrappers::OHPathsFunction* OHF) {return OHF->get_function()->begin();}
-    static nodes_iterator nodes_end(wrappers::OHPathsFunction* OHF) {return OHF->get_function()->end();}
+    static NodeRef getEntryNode(wrappers::OHPathsFunction* OHF) {return &OHF->get_function()->getEntryBlock();}
+    using nodes_iterator = pointer_iterator<Function::iterator>;
+    static nodes_iterator nodes_begin(wrappers::OHPathsFunction* OHF) {
+        return nodes_iterator(OHF->get_function()->begin());
+    }
+    static nodes_iterator nodes_end(wrappers::OHPathsFunction* OHF) {
+        return nodes_iterator(OHF->get_function()->end());
+    }
     static size_t size(wrappers::OHPathsFunction* OHF) {return OHF->get_function()->size();}
 };
 
 template<>
 struct GraphTraits<const wrappers::OHPathsFunction*> : public GraphTraits<const BasicBlock*>
 {
-    static NodeType* getEntryNode(const wrappers::OHPathsFunction* OHF) {return &OHF->get_function()->getEntryBlock();}
-    typedef Function::const_iterator nodes_iterator;
-    static nodes_iterator nodes_begin(const wrappers::OHPathsFunction* OHF) {return OHF->get_function()->begin();}
-    static nodes_iterator nodes_end(const wrappers::OHPathsFunction* OHF) {return OHF->get_function()->end();}
+    static NodeRef getEntryNode(const wrappers::OHPathsFunction* OHF) {return &OHF->get_function()->getEntryBlock();}
+    using nodes_iterator = pointer_iterator<Function::const_iterator>;
+    static nodes_iterator nodes_begin(const wrappers::OHPathsFunction* OHF) {
+        return nodes_iterator(OHF->get_function()->begin());
+    }
+    static nodes_iterator nodes_end(const wrappers::OHPathsFunction* OHF) {
+        return nodes_iterator(OHF->get_function()->end());
+    }
     static size_t size(const wrappers::OHPathsFunction* OHF) {return OHF->get_function()->size();}
 };
 
@@ -157,7 +167,7 @@ public:
             raw_string_ostream OS(Str);
             SwitchInst::ConstCaseIt Case =
                 SwitchInst::ConstCaseIt::fromSuccessorIndex(SI, SuccNo);
-            OS << Case.getCaseValue()->getValue();
+            OS << (*Case).getCaseValue()->getValue();
             return OS.str();
         }
         return "";

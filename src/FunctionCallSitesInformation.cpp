@@ -73,7 +73,7 @@ std::vector<llvm::Function*> FunctionCallSiteData::get_functions_in_top_down_ord
     llvm::CallGraphSCC CurSCC(*m_callGraph, &CGI);
     while (!CGI.isAtEnd()) {
         const std::vector<llvm::CallGraphNode *> &NodeVec = *CGI;
-        CurSCC.initialize(NodeVec.data(), NodeVec.data() + NodeVec.size());
+        CurSCC.initialize(NodeVec);
         for (llvm::CallGraphNode* node : CurSCC) {
             llvm::Function* F = node->getFunction();
             if (F == nullptr || F->isDeclaration()) {
