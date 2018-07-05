@@ -20,13 +20,47 @@ void dump(const std::string& label, const std::unordered_set<llvm::BasicBlock*> 
 
 void dump(const std::string& label, const std::unordered_set<llvm::Instruction*> instructions)
 {
-    llvm::dbgs() << label << "\n";
-    llvm::dbgs() << "------------------------\n";
+    //llvm::dbgs() << label << "\n";
+    //llvm::dbgs() << "------------------------\n";
     for (const auto& I : instructions) {
-        llvm::dbgs() << I->getParent()->getParent()->getName() << " " << I->getParent()->getName() << "  " << *I << "\n";
+        llvm::dbgs() << I->getParent()->getParent()->getName() << I->getParent()->getName() << *I << "\n";
+        //llvm::dbgs() << I->getParent()->getParent()->getName() << " " << *I << "\n";
     }
 }
 
+void dump(const llvm::BasicBlock::InstListType& instructions)
+{
+    for (const auto& I : instructions) {
+        llvm::dbgs() << I.getParent()->getParent()->getName() << I.getParent()->getName() << I << "\n";
+    }
+}
+
+void dump_instructions(const std::unordered_set<llvm::BasicBlock*> blocks)
+{
+    for (auto& B : blocks) {
+        dump(B->getInstList());
+    }
+}
+
+void dump_instructions(const std::unordered_set<llvm::Function*> functions)
+{
+    for (auto& F : functions) {
+        for (auto& B : *F) {
+            dump(B.getInstList());
+        }
+    }
+}
+
+int getNumberOfInstructionsInFunctions(const std::unordered_set<llvm::Function*>& functions)
+{
+    int number = 0;
+    for (auto& F : functions) {
+        for (auto& B : *F) {
+            number += B.getInstList().size();
+        }
+    }
+    return number;
+}
 
 }
 
@@ -44,6 +78,9 @@ void OHStats::addProtectedBlock(llvm::BasicBlock* B)
 
 void OHStats::addShortRangeOHProtectedBlock(llvm::BasicBlock* B)
 {
+    if (m_protectedBlocks.find(B) != m_protectedBlocks.end()) {
+        return;
+    }
     if (m_protectedBlocks.insert(B).second) {
         addNumberOfShortRangeProtectedBlocks(1);
     }
@@ -52,18 +89,33 @@ void OHStats::addShortRangeOHProtectedBlock(llvm::BasicBlock* B)
 
 void OHStats::addUnprotectedArgumentReachableLoopBlock(llvm::BasicBlock* B)
 {
+    if (m_unprotectedGlobalReachableLoopBlocks.find(B) != m_unprotectedGlobalReachableLoopBlocks.end()
+        || m_unprotectedDataDependentLoopBlocks.find(B) != m_unprotectedDataDependentLoopBlocks.end()) {
+        return;
+    }
     addUnprotectedLoopBlock(m_unprotectedArgumentReachableLoopBlocks,
                             B);
 }
 
 void OHStats::addUnprotectedGlobalReachableLoopBlock(llvm::BasicBlock* B)
 {
+    if (m_unprotectedArgumentReachableLoopBlocks.find(B) != m_unprotectedArgumentReachableLoopBlocks.end()
+        || m_unprotectedDataDependentLoopBlocks.find(B) != m_unprotectedDataDependentLoopBlocks.end()) {
+        return;
+    }
     addUnprotectedLoopBlock(m_unprotectedGlobalReachableLoopBlocks,
                             B);
 }
 
 void OHStats::addUnprotectedDataDependentLoopBlock(llvm::BasicBlock* B)
 {
+    if (m_unprotectedArgumentReachableLoopBlocks.find(B) != m_unprotectedArgumentReachableLoopBlocks.end()) {
+        m_unprotectedArgumentReachableLoopBlocks.erase(B);
+    }
+    if (m_unprotectedGlobalReachableLoopBlocks.find(B) != m_unprotectedGlobalReachableLoopBlocks.end()) {
+        m_unprotectedGlobalReachableLoopBlocks.erase(B);
+    }
+
     addUnprotectedLoopBlock(m_unprotectedDataDependentLoopBlocks,
                             B);
 }
@@ -72,7 +124,8 @@ void OHStats::addUnprotectedLoopBlock(BasicBlocksSet& unprotectedLoopBlocks,
                                       llvm::BasicBlock* B)
 {
     if (m_protectedBlocks.find(B) != m_protectedBlocks.end()
-        || m_nonHashableBlocks.find(B) != m_nonHashableBlocks.end()) {
+        || m_nonHashableBlocks.find(B) != m_nonHashableBlocks.end()
+        || m_unprotectedDataDependentBlocks.find(B) != m_unprotectedDataDependentBlocks.end()) {
         return;
     }
     unprotectedLoopBlocks.insert(B);
@@ -85,21 +138,40 @@ void OHStats::removeFromUnprotectedLoopBlocks(llvm::BasicBlock* B)
     m_unprotectedDataDependentLoopBlocks.erase(B);
 }
 
+bool OHStats::isUnprotectedLoopBlock(llvm::BasicBlock* B) const
+{
+    return (m_unprotectedArgumentReachableLoopBlocks.find(B) != m_unprotectedArgumentReachableLoopBlocks.end()
+            || m_unprotectedGlobalReachableLoopBlocks.find(B) != m_unprotectedGlobalReachableLoopBlocks.end()
+            || m_unprotectedDataDependentLoopBlocks.find(B) != m_unprotectedDataDependentLoopBlocks.end());
+}
+
 void OHStats::addNonHashableBlock(llvm::BasicBlock* B)
 {
     if (m_protectedBlocks.find(B) != m_protectedBlocks.end()) {
         return;
     }
     m_nonHashableBlocks.insert(B);
+    m_unprotectedDataDependentBlocks.erase(B);
     removeFromUnprotectedLoopBlocks(B);
 }
 
 void OHStats::addUnprotectedDataDependentBlock(llvm::BasicBlock* B)
 {
+    if (m_nonHashableBlocks.find(B) != m_nonHashableBlocks.end()
+        || m_protectedBlocks.find(B) != m_protectedBlocks.end()
+        || isUnprotectedLoopBlock(B)) {
+        return;
+    }
     if (m_unprotectedDataDependentBlocks.insert(B).second) {
         addNumberOfUnprotectedDataDependentBlocks(1);
         numberOfUnprotectedInputDependentInstructions += B->getInstList().size();
     }
+}
+
+void OHStats::addOhProtectedInstruction(llvm::Instruction* I)
+{
+    m_ohProtectedInstructions.insert(I);
+    addNumberOfProtectedInstructions(1);
 }
 
 void OHStats::addShortRangeProtectedInstruction(llvm::Instruction* I)
@@ -113,6 +185,7 @@ void OHStats::addShortRangeProtectedInstruction(llvm::Instruction* I)
     if (m_unprotectedGlobalReachableInstructions.erase(I)) {
         numberOfUnprotectedGlobalReachableInstructions += -1;
     }
+    m_unprotectedInstructions.erase(I);
     if (m_dataDependentInstructions.erase(I)) {
         numberOfDataDependentInstructions += -1;
     }
@@ -123,44 +196,105 @@ void OHStats::addDataDependentInstruction(llvm::Instruction* I)
     if (m_dataDependentInstructions.insert(I).second) {
         numberOfDataDependentInstructions += 1;
     }
-    assert(m_unprotectedArgumentReachableInstructions.find(I) == m_unprotectedArgumentReachableInstructions.end());
+    m_unprotectedArgumentReachableInstructions.erase(I);
+    m_unprotectedGlobalReachableInstructions.erase(I);
+    m_unprotectedInstructions.erase(I);
+    m_nonHashableInstructions.erase(I);
 }
 
 void OHStats::addNonHashableInstruction(llvm::Instruction* I)
 {
+    if (m_dataDependentInstructions.find(I) != m_dataDependentInstructions.end()) {
+        return;
+    }
+    if (m_unprotectedArgumentReachableInstructions.find(I) != m_unprotectedArgumentReachableInstructions.end()){
+        return;
+    }
+    if (m_unprotectedGlobalReachableInstructions.find(I) != m_unprotectedGlobalReachableInstructions.end()){
+        return;
+    }
+    m_unprotectedInstructions.erase(I);
     if (m_nonHashableInstructions.insert(I).second) {
         numberOfNonHashableInstructions += 1;
     }
-    assert(m_unprotectedArgumentReachableInstructions.find(I) == m_unprotectedArgumentReachableInstructions.end());
 }
 
 void OHStats::addUnprotectedArgumentReachableInstruction(llvm::Instruction* I)
 {
-    // if I is protected by global OH this function won't get called for it.
-    if (m_shortRangeProtectedInstructions.find(I) == m_shortRangeProtectedInstructions.end()) {
-        if (m_unprotectedArgumentReachableInstructions.insert(I).second) {
-            numberOfUnprotectedArgumentReachableInstructions += 1;
-        }
+    if (m_dataDependentInstructions.find(I) != m_dataDependentInstructions.end()) {
+        return;
     }
-    assert(m_dataDependentInstructions.find(I) == m_dataDependentInstructions.end());
+    if (m_shortRangeProtectedInstructions.find(I) != m_shortRangeProtectedInstructions.end()) {
+        return;
+    }
+    if (m_unprotectedGlobalReachableInstructions.find(I) != m_unprotectedGlobalReachableInstructions.end()) {
+        return;
+    }
+    if (m_nonHashableInstructions.find(I) != m_nonHashableInstructions.end()) {
+        return;
+    }
+    m_unprotectedInstructions.erase(I);
+    // if I is protected by global OH this function won't get called for it.
+    if (m_unprotectedArgumentReachableInstructions.insert(I).second) {
+        numberOfUnprotectedArgumentReachableInstructions += 1;
+    }
 }
 
 void OHStats::addUnprotectedGlobalReachableInstruction(llvm::Instruction* I)
 {
     // if I is protected by global OH this function won't get called for it.
-    if (m_shortRangeProtectedInstructions.find(I) == m_shortRangeProtectedInstructions.end()) {
-        if (m_unprotectedGlobalReachableInstructions.insert(I).second) {
-            numberOfUnprotectedGlobalReachableInstructions += 1;
-        }
+    if (m_dataDependentInstructions.find(I) != m_dataDependentInstructions.end()) {
+        return;
     }
-    assert(m_dataDependentInstructions.find(I) == m_dataDependentInstructions.end());
+    if (m_shortRangeProtectedInstructions.find(I) != m_shortRangeProtectedInstructions.end()) {
+        return;
+    }
+    if (m_unprotectedArgumentReachableInstructions.find(I) != m_unprotectedArgumentReachableInstructions.end()) {
+        return;
+    }
+    if (m_nonHashableInstructions.find(I) != m_nonHashableInstructions.end()) {
+        return;
+    }
+    m_unprotectedInstructions.erase(I);
+    if (m_unprotectedGlobalReachableInstructions.insert(I).second) {
+        numberOfUnprotectedGlobalReachableInstructions += 1;
+    }
+}
 
+void OHStats::addUnprotectedInstruction(llvm::Instruction* I)
+{
+    if (m_dataDependentInstructions.find(I) != m_dataDependentInstructions.end()) {
+        return;
+    }
+
+    if (m_shortRangeProtectedInstructions.find(I) == m_shortRangeProtectedInstructions.end()
+            && m_unprotectedArgumentReachableInstructions.find(I) == m_unprotectedArgumentReachableInstructions.end()
+            && m_unprotectedGlobalReachableInstructions.find(I) == m_unprotectedGlobalReachableInstructions.end()
+            && m_nonHashableInstructions.find(I) == m_nonHashableInstructions.end()) {
+        m_unprotectedInstructions.insert(I);
+    }
+}
+
+void OHStats::addFunctionWithNoDg(llvm::Function* F)
+{
+    m_functionsWithNoDG.insert(F);
+}
+
+void OHStats::addFilteredFunction(llvm::Function* F)
+{
+    m_filteredFunctions.insert(F);
+}
+
+void OHStats::addFunctionWithNoInputDep(llvm::Function* F)
+{
+    m_functionsWithNoInputDep.insert(F);
 }
 
 void OHStats::eraseFromUnprotectedBlocks(llvm::BasicBlock* B)
 {
     removeFromUnprotectedLoopBlocks(B);
     m_nonHashableBlocks.erase(B);
+    m_unprotectedDataDependentBlocks.erase(B);
 }
 
 void OHStats::addNumberOfProtectedGuardArguments(int value){
@@ -181,17 +315,42 @@ void OHStats::addNumberOfHashCalls(int value){
 void OHStats::addNumberOfAssertCalls(int value){
 	this->numberOfAssertCalls += value;
 }
-void OHStats::addNumberOfImplicitlyProtectedInstructions(int value){
-	this->numberOfImplicitlyProtectedInstructions += value;
+void OHStats::addNumberOfImplicitlyProtectedInstructions(llvm::Instruction* guardInst, int value){
+    if (m_scProtectedGuardInstructions.insert(guardInst).second) {
+        this->numberOfImplicitlyProtectedInstructions += value;
+        addNumberOfProtectedGuardInstructions(1);
+    }
 }
 void OHStats::addNumberOfProtectedGuardInstructions(int value){
 	this->numberOfProtectedGuardInstructions+=value;
 }
 
-void OHStats::addNumberOfShortRangeImplicitlyProtectedInstructions(int value)
+void OHStats::addNumberOfShortRangeImplicitlyProtectedInstructions(llvm::Instruction* guardInst, int value)
 {
-	numberOfShortRangeImplicitlyProtectedInstructions += value;
+    if (m_scProtectedGuardInstructions.insert(guardInst).second) {
+        numberOfShortRangeImplicitlyProtectedInstructions += value;
+        addNumberOfShortRangeProtectedGuardInstructions(1);
+    }
 }
+
+void OHStats::addSCProtectedGuardInstr(llvm::Instruction* I, int checkeeSize, int protectedArguments)
+{
+    if (m_scProtectedGuardInstructions.insert(I).second) {
+        this->numberOfImplicitlyProtectedInstructions += checkeeSize;
+        addNumberOfProtectedGuardInstructions(1);
+        addNumberOfProtectedGuardArguments(protectedArguments);
+    }
+}
+
+void OHStats::addSCShortRangeProtectedProtectedGuardInstr(llvm::Instruction* I, int checkeeSize, int protectedArguments)
+{
+    if (m_scProtectedGuardInstructions.insert(I).second) {
+        numberOfShortRangeImplicitlyProtectedInstructions += checkeeSize;
+        addNumberOfShortRangeProtectedGuardInstructions(1);
+        addNumberOfShortRangeProtectedGuardArguments(protectedArguments);
+    }
+}
+
 
 //void OHStats::addNumberOfShortRangeProtectedInstructions(int value)
 //{
@@ -309,19 +468,38 @@ void OHStats::dumpJson(std::string filePath){
 
     j["numberOfSensitiveFunctions"] = numberOfSensitiveFunctions;
     j["numberOfProtectedFunctions"] = numberOfProtectedFunctions;
-    j["numberOfSensitivePaths"] = numberOfSensitivePaths;
+    //j["numberOfSensitivePaths"] = numberOfSensitivePaths;
+    //j["numberOfProtectedPaths"] = numberOfProtectedPaths;
     j["numberOfNonHashableInstructions"] = numberOfNonHashableInstructions;
     j["numberOfUnprotectedLoopInstructions"] = numberOfUnprotectedLoopInstructions;
     j["numberOfDataDependentInstructions"] = numberOfDataDependentInstructions;
     j["numberOfUnprotectedArgumentReachableInstructions"] = numberOfUnprotectedArgumentReachableInstructions;
     j["numberOfUnprotectedGlobalReachableInstructions"] = numberOfUnprotectedGlobalReachableInstructions;
     j["numberOfUnprotectedInputDependentInstructions"] = numberOfUnprotectedInputDependentInstructions;
+    j["numberOfOtherUnprotectedInstructions"] = m_unprotectedInstructions.size();
+    j["numberOfInstructionsInFilteredFunctions"] = getNumberOfInstructionsInFunctions(m_filteredFunctions);
+    //j["numberOfInstructionsInFunctionsWithNoInputDep"] = getNumberOfInstructionsInFunctions(m_functionsWithNoInputDep);
+    j["numberOfInstructionsInFunctionsWithNoDG"] = getNumberOfInstructionsInFunctions(m_functionsWithNoDG);
+
+    int numberOfProcessedInstrs = getNumberOfInstructionsInFunctions(m_functionsWithNoDG)
+        + getNumberOfInstructionsInFunctions(m_filteredFunctions)
+        + numberOfUnprotectedInputDependentInstructions
+        + numberOfUnprotectedGlobalReachableInstructions
+        + numberOfUnprotectedArgumentReachableInstructions
+        + numberOfDataDependentInstructions
+        + numberOfUnprotectedLoopInstructions
+        + numberOfNonHashableInstructions
+        + numberOfShortRangeProtectedInstructions
+        + numberOfProtectedInstructions
+        +  m_unprotectedInstructions.size();
+    llvm::dbgs() << "Processed instructions number " << numberOfProcessedInstrs << "\n";
+    j["numberOfOHProcessedInstr"] = numberOfProcessedInstrs;
 
 	std::cout << j.dump(4) << std::endl;
 	std::ofstream o(filePath);
 	o << std::setw(4) << j << std::endl;
 
-    //dumpBlocks();
+    dumpBlocks();
     //dumpInstructions();
 }
 
@@ -336,16 +514,123 @@ void OHStats::dumpBlocks()
 
 void OHStats::dumpInstructions()
 {
+    for (auto& I : m_ohProtectedInstructions) {
+        assert(m_shortRangeProtectedInstructions.find(I) == m_shortRangeProtectedInstructions.end());
+        assert(m_dataDependentInstructions.find(I) == m_dataDependentInstructions.end());
+        assert(m_nonHashableInstructions.find(I) == m_nonHashableInstructions.end());
+        assert(m_unprotectedArgumentReachableInstructions.find(I) == m_unprotectedArgumentReachableInstructions.end());
+        assert(m_unprotectedGlobalReachableInstructions.find(I) == m_unprotectedGlobalReachableInstructions.end());
+        assert(m_unprotectedInstructions.find(I) == m_unprotectedInstructions.end());
+    }
+    for (auto& I : m_shortRangeProtectedInstructions) {
+        assert(m_ohProtectedInstructions.find(I) == m_ohProtectedInstructions.end());
+        assert(m_dataDependentInstructions.find(I) == m_dataDependentInstructions.end());
+        assert(m_nonHashableInstructions.find(I) == m_nonHashableInstructions.end());
+        assert(m_unprotectedArgumentReachableInstructions.find(I) == m_unprotectedArgumentReachableInstructions.end());
+        assert(m_unprotectedGlobalReachableInstructions.find(I) == m_unprotectedGlobalReachableInstructions.end());
+        assert(m_unprotectedInstructions.find(I) == m_unprotectedInstructions.end());
+    }
+    for (auto& I : m_dataDependentInstructions) {
+        assert(m_ohProtectedInstructions.find(I) == m_ohProtectedInstructions.end());
+        assert(m_shortRangeProtectedInstructions.find(I) == m_shortRangeProtectedInstructions.end());
+        assert(m_nonHashableInstructions.find(I) == m_nonHashableInstructions.end());
+        assert(m_unprotectedArgumentReachableInstructions.find(I) == m_unprotectedArgumentReachableInstructions.end());
+        assert(m_unprotectedGlobalReachableInstructions.find(I) == m_unprotectedGlobalReachableInstructions.end());
+        assert(m_unprotectedInstructions.find(I) == m_unprotectedInstructions.end());
+    }
+    for (auto& I : m_nonHashableInstructions) {
+        assert(m_ohProtectedInstructions.find(I) == m_ohProtectedInstructions.end());
+        assert(m_shortRangeProtectedInstructions.find(I) == m_shortRangeProtectedInstructions.end());
+        assert(m_dataDependentInstructions.find(I) == m_dataDependentInstructions.end());
+        assert(m_unprotectedArgumentReachableInstructions.find(I) == m_unprotectedArgumentReachableInstructions.end());
+        assert(m_unprotectedGlobalReachableInstructions.find(I) == m_unprotectedGlobalReachableInstructions.end());
+        assert(m_unprotectedInstructions.find(I) == m_unprotectedInstructions.end());
+    }
+    for (auto& I : m_unprotectedArgumentReachableInstructions) {
+        assert(m_ohProtectedInstructions.find(I) == m_ohProtectedInstructions.end());
+        assert(m_shortRangeProtectedInstructions.find(I) == m_shortRangeProtectedInstructions.end());
+        assert(m_dataDependentInstructions.find(I) == m_dataDependentInstructions.end());
+        assert(m_nonHashableInstructions.find(I) == m_nonHashableInstructions.end());
+        assert(m_unprotectedGlobalReachableInstructions.find(I) == m_unprotectedGlobalReachableInstructions.end());
+        assert(m_unprotectedInstructions.find(I) == m_unprotectedInstructions.end());
+    }
+    for (auto& I : m_unprotectedGlobalReachableInstructions) {
+        assert(m_ohProtectedInstructions.find(I) == m_ohProtectedInstructions.end());
+        assert(m_shortRangeProtectedInstructions.find(I) == m_shortRangeProtectedInstructions.end());
+        assert(m_dataDependentInstructions.find(I) == m_dataDependentInstructions.end());
+        assert(m_nonHashableInstructions.find(I) == m_nonHashableInstructions.end());
+        assert(m_unprotectedArgumentReachableInstructions.find(I) == m_unprotectedArgumentReachableInstructions.end());
+        assert(m_unprotectedInstructions.find(I) == m_unprotectedInstructions.end());
+    }
+    for (auto& I : m_unprotectedInstructions) {
+        assert(m_ohProtectedInstructions.find(I) == m_ohProtectedInstructions.end());
+        assert(m_shortRangeProtectedInstructions.find(I) == m_shortRangeProtectedInstructions.end());
+        assert(m_dataDependentInstructions.find(I) == m_dataDependentInstructions.end());
+        assert(m_nonHashableInstructions.find(I) == m_nonHashableInstructions.end());
+        assert(m_unprotectedArgumentReachableInstructions.find(I) == m_unprotectedArgumentReachableInstructions.end());
+        assert(m_unprotectedGlobalReachableInstructions.find(I) == m_unprotectedGlobalReachableInstructions.end());
+    }
+
+    for (auto& B : m_protectedBlocks) {
+        assert(m_unprotectedArgumentReachableLoopBlocks.find(B) == m_unprotectedArgumentReachableLoopBlocks.end());
+        assert(m_unprotectedGlobalReachableLoopBlocks.find(B) == m_unprotectedGlobalReachableLoopBlocks.end());
+        assert(m_unprotectedDataDependentLoopBlocks.find(B) == m_unprotectedDataDependentLoopBlocks.end());
+        assert(m_nonHashableBlocks.find(B) == m_nonHashableBlocks.end());
+        assert(m_unprotectedDataDependentBlocks.find(B) == m_unprotectedDataDependentBlocks.end());
+    }
+    for (auto& B : m_unprotectedArgumentReachableLoopBlocks) {
+        assert(m_protectedBlocks.find(B) == m_protectedBlocks.end());
+        assert(m_unprotectedGlobalReachableLoopBlocks.find(B) == m_unprotectedGlobalReachableLoopBlocks.end());
+        assert(m_unprotectedDataDependentLoopBlocks.find(B) == m_unprotectedDataDependentLoopBlocks.end());
+        assert(m_nonHashableBlocks.find(B) == m_nonHashableBlocks.end());
+        assert(m_unprotectedDataDependentBlocks.find(B) == m_unprotectedDataDependentBlocks.end());
+    }
+    for (auto& B : m_unprotectedGlobalReachableLoopBlocks) {
+        assert(m_protectedBlocks.find(B) == m_protectedBlocks.end());
+        assert(m_unprotectedArgumentReachableLoopBlocks.find(B) == m_unprotectedArgumentReachableLoopBlocks.end());
+        assert(m_unprotectedDataDependentLoopBlocks.find(B) == m_unprotectedDataDependentLoopBlocks.end());
+        assert(m_nonHashableBlocks.find(B) == m_nonHashableBlocks.end());
+        assert(m_unprotectedDataDependentBlocks.find(B) == m_unprotectedDataDependentBlocks.end());
+    }
+    for (auto& B : m_unprotectedDataDependentLoopBlocks) {
+        assert(m_protectedBlocks.find(B) == m_protectedBlocks.end());
+        assert(m_unprotectedArgumentReachableLoopBlocks.find(B) == m_unprotectedArgumentReachableLoopBlocks.end());
+        assert(m_unprotectedGlobalReachableLoopBlocks.find(B) == m_unprotectedGlobalReachableLoopBlocks.end());
+        assert(m_nonHashableBlocks.find(B) == m_nonHashableBlocks.end());
+        assert(m_unprotectedDataDependentBlocks.find(B) == m_unprotectedDataDependentBlocks.end());
+    }
+    for (auto& B : m_nonHashableBlocks) {
+        assert(m_protectedBlocks.find(B) == m_protectedBlocks.end());
+        assert(m_unprotectedArgumentReachableLoopBlocks.find(B) == m_unprotectedArgumentReachableLoopBlocks.end());
+        assert(m_unprotectedGlobalReachableLoopBlocks.find(B) == m_unprotectedGlobalReachableLoopBlocks.end());
+        assert(m_unprotectedArgumentReachableLoopBlocks.find(B) == m_unprotectedDataDependentLoopBlocks.end());
+        assert(m_unprotectedDataDependentBlocks.find(B) == m_unprotectedDataDependentBlocks.end());
+    }
+    for (auto& B : m_unprotectedDataDependentBlocks) {
+        assert(m_protectedBlocks.find(B) == m_protectedBlocks.end());
+        assert(m_unprotectedArgumentReachableLoopBlocks.find(B) == m_unprotectedArgumentReachableLoopBlocks.end());
+        assert(m_unprotectedGlobalReachableLoopBlocks.find(B) == m_unprotectedGlobalReachableLoopBlocks.end());
+        assert(m_unprotectedArgumentReachableLoopBlocks.find(B) == m_unprotectedDataDependentLoopBlocks.end());
+        assert(m_nonHashableBlocks.find(B) == m_nonHashableBlocks.end());
+    }
     //for (auto* I : m_shortRangeProtectedInstructions) {
     //    assert(m_nonHashableInstructions.find(I) == m_nonHashableInstructions.end());
     //    assert(m_dataDependentInstructions.find(I) == m_dataDependentInstructions.end());
     //    assert(m_unprotectedArgumentReachableInstructions.find(I) == m_unprotectedArgumentReachableInstructions.end());
     //    assert(m_unprotectedGlobalReachableInstructions.find(I) == m_unprotectedGlobalReachableInstructions.end());
     //}
-    dump("Short range protected instructions", m_shortRangeProtectedInstructions);
+    //dump("Oh protected instructions", m_ohProtectedInstructions);
+    //dump("Short range protected instructions", m_shortRangeProtectedInstructions);
     //dump("data dependent instructions", m_dataDependentInstructions);
     //dump("non hashable instructions", m_nonHashableInstructions);
     //dump("unprotected argument reachable instructions", m_unprotectedArgumentReachableInstructions);
+    //dump("unprotected global reachable instructions", m_unprotectedGlobalReachableInstructions);
+    //dump("unprotected instructions", m_unprotectedInstructions);
+    //dump_instructions(m_unprotectedArgumentReachableLoopBlocks);
+    //dump_instructions(m_unprotectedGlobalReachableLoopBlocks);
+    //dump_instructions(m_unprotectedDataDependentLoopBlocks);
+    //dump_instructions(m_filteredFunctions);
+    //dump_instructions(m_functionsWithNoDG);
 }
 
 }

@@ -45,10 +45,14 @@ public:
     struct short_range_path_oh
     {
         FunctionOHPaths::OHPath path;
-        llvm::Function* path_assert;
+        bool hash_invariants_only;
+        bool process_det_blocks_only;
+        llvm::BasicBlock* exit_block;
+        llvm::BasicBlock* entry_block;
+        llvm::Loop* loop;
+        llvm::Function* path_assert = nullptr;
         llvm::Value* hash_variable;
         llvm::Function* extracted_path_function;
-        bool dont_hash_branches;
     };
 
 public:
@@ -60,36 +64,37 @@ public:
   virtual void getAnalysisUsage(llvm::AnalysisUsage &AU) const override;
 
 private:
+  // TODO: cleanup functions. Remove those not used
   void setup_guardMe_metadata();
   void setup_used_analysis_results();
   void setup_functions();
   void setup_hash_values();
   void setup_memory_defining_blocks();
-  bool skip_function(llvm::Function& F) const;
+  bool skip_function(llvm::Function& F);
   bool process_function(llvm::Function* F);
   bool process_function_with_short_range_oh_enabled(llvm::Function* F);
   bool process_function_with_global_oh(llvm::Function* F);
-  void insert_ordered_calls_for_path_functions();
   void insert_calls_for_path_functions();
   bool process_path(llvm::Function* F,
                     FunctionOHPaths::OHPath& path,
-                    bool hash_given_instructions_only = false,
-                    const InstructionSet& instructions_to_hash = InstructionSet());
+                    const unsigned path_num);
   bool process_path(llvm::Function* F,
-                    FunctionOHPaths::OHPath& path,
-                    llvm::BasicBlock* exit_block,
-                    bool can_insert_assertion,
-                    bool hash_given_instructions_only = false,
-                    const InstructionSet& instructions_to_hash = InstructionSet());
-  bool process_loop_path(llvm::Function* F,
-                         FunctionOHPaths::OHPath& path);
-  std::unordered_map<llvm::BasicBlock*, FunctionOHPaths::OHPath>
-      split_path_to_hashable_paths(llvm::Function* F,
-                                   FunctionOHPaths::OHPath& path);
+                    short_range_path_oh& oh_path,
+                    const unsigned path_num);
+  bool process_deterministic_part_of_path(llvm::Function* F,
+                                          short_range_path_oh& oh_path);
+  std::pair<llvm::Instruction*, llvm::Instruction*> insert_hash_variable(llvm::Function* F,
+                                                                         llvm::BasicBlock* initialization_block);
+  short_range_path_oh& determine_path_processing_settings(llvm::Function* F,
+                                                          FunctionOHPaths::OHPath& path);
+  void update_statistics(const FunctionOHPaths::OHPath& path,
+                         llvm::Loop* path_loop,
+                         const bool is_data_dep_loop,
+                         const bool is_arg_reachable_loop,
+                         const bool is_glob_reachable_loop);
   InstructionSet collect_loop_invariants(llvm::Function* F,
                                          llvm::Loop* loop,
                                          const FunctionOHPaths::OHPath& path);
-
   void extract_path_functions();
   bool can_instrument_instruction(llvm::Function* F,
                                   llvm::Instruction* I,
@@ -100,44 +105,46 @@ private:
                           const SkipFunctionsPred& skipInstructionPred,
                           bool& local_hash_updated,
                           int path_num,
-                          InstructionSet& skipped_instructions);
+                          InstructionSet& skipped_instructions,
+                          bool hash_branch_inst);
   bool process_block(llvm::Function* F, llvm::BasicBlock* B,
                      bool insert_assert,
                      const SkipFunctionsPred& skipInstructionPred,
                      InstructionSet& skipped_instructions);
   bool isUsingGlobal(llvm::Value* value,
                      const std::unordered_set<llvm::Instruction*>& global_reachable_instr);
-
+  llvm::Loop* get_path_loop(llvm::Function* F,
+                            const FunctionOHPaths::OHPath& path);
+  bool can_protect_loop_path(llvm::Function* F,
+                             const FunctionOHPaths::OHPath& path,
+                             llvm::Loop* path_loop);
+  bool can_protect_loop_block(llvm::BasicBlock* B);
+  bool can_protect_loop_block(llvm::BasicBlock* B,
+                              bool& data_dep_loop,
+                              bool& arg_reachable_loop,
+                              bool& global_reachable_loop);
   bool is_data_dependent_loop(llvm::Loop* loop) const;
   bool is_argument_reachable_loop(llvm::Loop* loop);
   bool is_global_reachable_loop(llvm::Loop* loop);
-  bool can_short_range_protect_loop(llvm::Function* F,
-                                    const FunctionOHPaths::OHPath& path,
-                                    llvm::BasicBlock* assert_block,
-                                    bool& data_dep_loop,
-                                    bool& arg_reachable_loop,
-                                    bool& global_reachable_loop);
-  bool can_short_range_protect_loop_path(llvm::Function* F,
-                                         const FunctionOHPaths::OHPath& path,
-                                         bool& data_dep_loop,
-                                         bool& arg_reachable_loop,
-                                         bool& global_reachable_loop);
-  bool is_hashable_loop_path(llvm::Function* F,
-                             const FunctionOHPaths::OHPath& path);
-  bool can_insert_short_range_assertion(llvm::Function* F,
-                                        const FunctionOHPaths::OHPath& path);
-  llvm::BasicBlock* get_path_exit_block(llvm::Function* F,
-                                        const FunctionOHPaths::OHPath& path);
-  void extendPath(llvm::Function* F, FunctionOHPaths::OHPath& path);
+  void extend_loop_path(llvm::Function* F,
+                        FunctionOHPaths::OHPath& path,
+                        llvm::Loop* path_loop);
+  void shrink_to_body_path(FunctionOHPaths::OHPath& path,
+                           llvm::Loop* path_loop);
+  void shrink_to_non_loop_path(FunctionOHPaths::OHPath& path,
+                               llvm::Loop* path_loop);
   const InstructionSet& get_argument_reachable_instructions(llvm::Function* F);
   InstructionSet& get_global_reachable_instructions(llvm::Function* F);
   void collect_argument_reachable_instructions(llvm::Function* F);
   void collect_global_reachable_instructions(llvm::Function* F);
-  bool can_insert_assertion_at_location(llvm::Function* F,
-                                        llvm::BasicBlock* B,
-                                        llvm::LoopInfo& LI);
+  bool can_insert_assertion_at_deterministic_location(llvm::Function* F,
+                                                      llvm::BasicBlock* B,
+                                                      llvm::LoopInfo& LI);
   bool insertHash(llvm::Instruction &I, llvm::Value *v, llvm::Value* hash_value, bool before);
   bool instrumentInst(llvm::Instruction& I, llvm::Value* hash_to_update, bool is_local_hash);
+  bool instrumentBranchInst(llvm::BranchInst* branchInst,
+                            llvm::Value* hash_to_update,
+                            bool is_local_hash);
   template <class CallInstTy>
   bool instrumentCallInst(CallInstTy* call,
                           int& protectedArguments,
@@ -191,7 +198,6 @@ private:
   std::unordered_map<llvm::Function*, InstructionSet> m_argument_reachable_instructions;
   std::unordered_map<llvm::Function*, InstructionSet> m_global_reachable_instructions;
   std::unordered_map<llvm::BasicBlock*, InstructionSet> m_block_invariants;
-  std::unordered_set<std::string> m_processed_paths;
 
   InstructionSet m_globalHashedInstructions;
   InstructionSet m_shortRangeHashedInstructions;

@@ -41,12 +41,12 @@ public:
 
     const std::unordered_map<llvm::BasicBlock*, std::vector<int>>& get_blocks() const
     {
-        return m_blocks;
+        return m_indexedBlocks;
     }
 
     std::unordered_map<llvm::BasicBlock*, std::vector<int>>& get_blocks()
     {
-        return m_blocks;
+        return m_indexedBlocks;
     }
 
 private:
@@ -54,7 +54,7 @@ private:
 
 private:
     llvm::Function* m_F;
-    std::unordered_map<llvm::BasicBlock*, std::vector<int>> m_blocks;
+    std::unordered_map<llvm::BasicBlock*, std::vector<int>> m_indexedBlocks;
 };
 
 void OHPathsFunction::setup_block_paths(const oh::FunctionOHPaths& paths)
@@ -62,7 +62,7 @@ void OHPathsFunction::setup_block_paths(const oh::FunctionOHPaths& paths)
     unsigned i = 0;
     for (const auto& path : paths) {
         for (const auto& B : path) {
-            m_blocks[B].push_back(i);
+            m_indexedBlocks[B].push_back(i);
         }
         ++i;
     }
@@ -186,12 +186,28 @@ public:
 
 } // namespace llvm
 
+namespace {
+
+template <typename K, typename T>
+std::vector<T> values(const std::unordered_map<K, T>& map)
+{
+    std::vector<T> map_values;
+    for (auto& entry : map) {
+        map_values.push_back(entry.second);
+    }
+    return map_values;
+}
+
+} // unnamed namespace
 
 namespace oh {
 
-FunctionOHPaths::FunctionOHPaths(llvm::Function* F, llvm::DominatorTree* domTree)
+FunctionOHPaths::FunctionOHPaths(llvm::Function* F,
+                                 llvm::DominatorTree* domTree,
+                                 llvm::LoopInfo* loopInfo)
     : m_F(F)
     , m_domTree(domTree)
+    , m_loopInfo(loopInfo)
 {
 }
 
@@ -200,6 +216,7 @@ void FunctionOHPaths::constructOHPaths()
     auto* rootNode = m_domTree->getRootNode();
     OHPath path;
     dfsConstruct(rootNode, path);
+    splitLoopPaths();
 }
 
 void FunctionOHPaths::dump() const
@@ -240,17 +257,52 @@ void FunctionOHPaths::dfsConstruct(DomTreeNode* node, OHPath path)
     }
 }
 
+void FunctionOHPaths::splitLoopPaths()
+{
+    OHPaths newPaths;
+    for (const auto& path : m_paths) {
+        const auto& splittedPaths = splitLoopPath(path);
+        newPaths.insert(newPaths.end(), splittedPaths.begin(), splittedPaths.end());
+    }
+    m_paths.clear();
+    m_paths = newPaths;
+}
+
+FunctionOHPaths::OHPaths FunctionOHPaths::splitLoopPath(const OHPath& path)
+{
+    std::unordered_map<llvm::Loop*, OHPath> loop_paths;
+    // find info about loops in the path
+    for (auto& BB : path) {
+        auto* loop = m_loopInfo->getLoopFor(BB);
+        loop_paths.insert(std::make_pair(loop, OHPath()));
+    }
+
+    for (auto& BB : path) {
+        auto* loop = m_loopInfo->getLoopFor(BB);
+        if (!loop) {
+            for (auto& loop_path : loop_paths) {
+                loop_path.second.push_back(BB);
+            }
+        } else {
+            loop_paths[loop].push_back(BB);
+        }
+    }
+    return values(loop_paths);
+}
+
 char FunctionOHPathsPass::ID = 0;
 
 void FunctionOHPathsPass::getAnalysisUsage(llvm::AnalysisUsage &AU) const {
     AU.setPreservesAll();
     AU.addRequired<llvm::DominatorTreeWrapperPass>();
+    AU.addRequired<llvm::LoopInfoWrapperPass>();
 }
 
 bool FunctionOHPathsPass::runOnFunction(llvm::Function& F)
 {
     llvm::DominatorTree& domTree = getAnalysis<llvm::DominatorTreeWrapperPass>().getDomTree();
-    FunctionOHPaths paths(&F, &domTree);
+    llvm::LoopInfo &LI = getAnalysis<llvm::LoopInfoWrapperPass>().getLoopInfo();
+    FunctionOHPaths paths(&F, &domTree, &LI);
     paths.constructOHPaths();
 
     wrappers::OHPathsFunction OHF(&F, paths);

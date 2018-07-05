@@ -4,6 +4,7 @@
 namespace llvm {
 class BasicBlock;
 class Instruction;
+class Function;
 }
 
 namespace oh {
@@ -53,11 +54,20 @@ private:
     BasicBlocksSet m_nonHashableBlocks;
     BasicBlocksSet m_unprotectedDataDependentBlocks;
     using InstructionSet = std::unordered_set<llvm::Instruction*>;
+    InstructionSet m_ohProtectedInstructions;
     InstructionSet m_shortRangeProtectedInstructions;
     InstructionSet m_dataDependentInstructions;
     InstructionSet m_nonHashableInstructions;
     InstructionSet m_unprotectedArgumentReachableInstructions;
     InstructionSet m_unprotectedGlobalReachableInstructions;
+    InstructionSet m_unprotectedInstructions;
+
+    InstructionSet m_scProtectedGuardInstructions;
+
+    using FunctionSet = std::unordered_set<llvm::Function*>;
+    FunctionSet m_functionsWithNoDG;
+    FunctionSet m_filteredFunctions;
+    FunctionSet m_functionsWithNoInputDep;
 
 private:
     void addUnprotectedLoopInstructions();
@@ -66,6 +76,7 @@ private:
     void dumpInstructions();
     void addUnprotectedLoopBlock(BasicBlocksSet& unprotectedLoopBlocks, llvm::BasicBlock* B);
     void removeFromUnprotectedLoopBlocks(llvm::BasicBlock* B);
+    bool isUnprotectedLoopBlock(llvm::BasicBlock* B) const;
 
 public:
     void addProtectedBlock(llvm::BasicBlock* B);
@@ -76,15 +87,24 @@ public:
     void addNonHashableBlock(llvm::BasicBlock* B);
     void addUnprotectedDataDependentBlock(llvm::BasicBlock* B);
 
+    void addOhProtectedInstruction(llvm::Instruction* I);
     void addShortRangeProtectedInstruction(llvm::Instruction* I);
     void addDataDependentInstruction(llvm::Instruction* I);
     void addNonHashableInstruction(llvm::Instruction* I);
     void addUnprotectedArgumentReachableInstruction(llvm::Instruction* I);
     void addUnprotectedGlobalReachableInstruction(llvm::Instruction* I);
+    void addUnprotectedInstruction(llvm::Instruction* I);
+
+    void addSCProtectedGuardInstr(llvm::Instruction* I, int checkeeSize, int protectedArguments);
+    void addSCShortRangeProtectedProtectedGuardInstr(llvm::Instruction* I, int checkeeSize, int protectedArguments);
+
+    void addFunctionWithNoDg(llvm::Function* F);
+    void addFilteredFunction(llvm::Function* F);
+    void addFunctionWithNoInputDep(llvm::Function* F);
 
     void eraseFromUnprotectedBlocks(llvm::BasicBlock* B);
 
-    void addNumberOfImplicitlyProtectedInstructions(int);
+    void addNumberOfImplicitlyProtectedInstructions(llvm::Instruction* guardInst, int);
     void addNumberOfProtectedInstructions(int);
     void addNumberOfProtectedArguments(int);
     void setNumberOfHashVariables(int);
@@ -93,7 +113,7 @@ public:
     void addNumberOfProtectedGuardInstructions(int);
     void addNumberOfProtectedGuardArguments(int);
 
-    void addNumberOfShortRangeImplicitlyProtectedInstructions(int);
+    void addNumberOfShortRangeImplicitlyProtectedInstructions(llvm::Instruction* guardInst, int);
     void addNumberOfShortRangeProtectedArguments(int);
     void addNumberOfShortRangeHashCalls(int);
     void addNumberOfShortRangeAssertCalls(int);

@@ -1,13 +1,16 @@
 #pragma once
 
 #include "llvm/Pass.h"
-#include "llvm/IR/Dominators.h"
+//#include "llvm/IR/Dominators.h"
 
 #include <vector>
 
 namespace llvm {
 class BasicBlock;
 class Function;
+class DominatorTree;
+class LoopInfo; 
+template <typename T> class DomTreeNodeBase;
 }
 
 namespace oh {
@@ -21,10 +24,14 @@ public:
     using const_iterator = OHPaths::const_iterator;
 
 public:
-    FunctionOHPaths(llvm::Function* F, llvm::DominatorTree* domTree);
+    FunctionOHPaths(llvm::Function* F,
+                    llvm::DominatorTree* domTree,
+                    llvm::LoopInfo* loopInfo);
 
     FunctionOHPaths(const FunctionOHPaths&) = delete;
+    FunctionOHPaths(FunctionOHPaths&&) = delete;
     FunctionOHPaths& operator =(const FunctionOHPaths&) = delete;
+    FunctionOHPaths& operator =(FunctionOHPaths&&) = delete;
 
 public:
     void constructOHPaths();
@@ -79,10 +86,13 @@ public:
 private:
     using DomTreeNode = llvm::DomTreeNodeBase<llvm::BasicBlock>;
     void dfsConstruct(DomTreeNode* node, OHPath path);
+    void splitLoopPaths();
+    OHPaths splitLoopPath(const OHPath& path);
 
 private:
     llvm::Function* m_F;
     llvm::DominatorTree* m_domTree;
+    llvm::LoopInfo* m_loopInfo;
     OHPaths m_paths;
 }; // class FunctionOHPaths
 
