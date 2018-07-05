@@ -117,8 +117,10 @@ private:
                             const FunctionOHPaths::OHPath& path);
   bool can_protect_loop_path(llvm::Function* F,
                              const FunctionOHPaths::OHPath& path,
-                             llvm::Loop* path_loop);
-  bool can_protect_loop_block(llvm::BasicBlock* B);
+                             llvm::Loop* path_loop,
+                             bool& is_data_dep_loop,
+                             bool& is_arg_reachable_loop,
+                             bool& is_glob_reachable_loop);
   bool can_protect_loop_block(llvm::BasicBlock* B,
                               bool& data_dep_loop,
                               bool& arg_reachable_loop,

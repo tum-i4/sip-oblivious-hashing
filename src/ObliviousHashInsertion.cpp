@@ -1502,33 +1502,6 @@ llvm::Loop* ObliviousHashInsertionPass::get_path_loop(llvm::Function* F, const F
     return nullptr;
 }
 
-bool ObliviousHashInsertionPass::can_protect_loop_block(llvm::BasicBlock* B)
-{
-    // the callee needs to make sure that block is a loop block
-    llvm::Function* F = B->getParent();
-    auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
-    const auto& argument_reachable_instr = get_argument_reachable_instructions(F);
-    const auto& global_reachable_instr = get_global_reachable_instructions(F);
-
-    if (F_input_dependency_info->isInputDependentBlock(B)
-            || F_input_dependency_info->isDataDependent(B->getTerminator())) {
-        return false;
-    }
-    if (!F_input_dependency_info->isInputDepFunction()) {
-        return true;
-    }
-    auto* block_terminator = B->getTerminator();
-    if (argument_reachable_instr.find(block_terminator) != argument_reachable_instr.end()
-            || F_input_dependency_info->isArgumentDependent(block_terminator)) {
-        return false;
-    }
-    if (global_reachable_instr.find(block_terminator) != global_reachable_instr.end()
-            || F_input_dependency_info->isGlobalDependent(block_terminator)) {
-        return false;
-    }
-    return true;
-}
-
 bool ObliviousHashInsertionPass::can_protect_loop_block(llvm::BasicBlock* B,
                                                         bool& data_dep_loop,
                                                         bool& arg_reachable_loop,
@@ -1561,15 +1534,22 @@ bool ObliviousHashInsertionPass::can_protect_loop_block(llvm::BasicBlock* B,
 
 bool ObliviousHashInsertionPass::can_protect_loop_path(llvm::Function* F,
                                                        const FunctionOHPaths::OHPath& path,
-                                                       llvm::Loop* path_loop)
+                                                       llvm::Loop* path_loop,
+                                                       bool& is_data_dep_loop,
+                                                       bool& is_arg_reachable_loop,
+                                                       bool& is_glob_reachable_loop)
 {
     if (!path_loop) {
         return true;
     }
+    bool result = true;
     auto* loop_header = path_loop->getHeader();
     llvm::LoopInfo& LI = getAnalysis<llvm::LoopInfoWrapperPass>(*F).getLoopInfo();
-    if (!can_protect_loop_block(loop_header)) {
-        return false;
+    if (!can_protect_loop_block(loop_header, is_data_dep_loop, is_arg_reachable_loop, is_glob_reachable_loop)) {
+        result = false;
+        if (is_data_dep_loop) {
+            return result;
+        }
     }
     for (auto& B : path) {
         auto* loop = LI.getLoopFor(B);
@@ -1579,11 +1559,21 @@ bool ObliviousHashInsertionPass::can_protect_loop_path(llvm::Function* F,
         if (B == loop_header) {
             continue;
         }
-        if (!can_protect_loop_block(B)) {
-            return false;
+        bool local_arg_dep = false;
+        bool local_glob_dep = false;
+        if (!can_protect_loop_block(B, is_data_dep_loop, local_arg_dep, local_glob_dep)) {
+            result = false;
+            if (is_data_dep_loop) {
+                return result;
+            }
+            is_arg_reachable_loop |= local_arg_dep;
+            is_glob_reachable_loop |= local_glob_dep;
         }
     }
-    return true;
+    is_arg_reachable_loop &= !is_data_dep_loop;
+    is_glob_reachable_loop &= !is_data_dep_loop;
+    is_glob_reachable_loop &= !is_arg_reachable_loop;
+    return result;
 }
 
 ObliviousHashInsertionPass::short_range_path_oh&
@@ -1599,7 +1589,11 @@ ObliviousHashInsertionPass::determine_path_processing_settings(llvm::Function* F
         oh_path.entry_block = path.front();
         oh_path.exit_block = path.back();
     } else {
-        if (can_protect_loop_path(F, path, loop)) {
+        bool is_data_dep_loop = false;
+        bool is_arg_reachable_loop = false;
+        bool is_glob_reachable_loop = false;
+        if (can_protect_loop_path(F, path, loop,
+                                  is_data_dep_loop, is_arg_reachable_loop, is_glob_reachable_loop)) {
             extend_loop_path(F, path, loop);
             oh_path.path = path;
             oh_path.process_det_blocks_only = false;
@@ -1607,10 +1601,7 @@ ObliviousHashInsertionPass::determine_path_processing_settings(llvm::Function* F
             oh_path.entry_block = path.front();
             oh_path.exit_block = path.back();
         } else {
-            // TODO: reuse information from can_protect_loop_path instead of calling these functions
-            const bool is_data_dep_loop = is_data_dependent_loop(loop);
-            const bool is_arg_reachable_loop = !is_data_dep_loop && is_argument_reachable_loop(loop);
-            const bool is_glob_reachable_loop = !is_data_dep_loop && !is_arg_reachable_loop && is_global_reachable_loop(loop);
+            assert(is_data_dep_loop || is_arg_reachable_loop || is_glob_reachable_loop);
             FunctionOHPaths::OHPath original_path = path;
             if (protectDataDepLoops) {
                 shrink_to_body_path(path, loop);
@@ -1669,10 +1660,14 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
         return false;
     }
     auto& oh_path = determine_path_processing_settings(F, path);
+    llvm::dbgs() << "After path modifications process path";
     if (oh_path.path.empty()) {
+        llvm::dbgs() << " is empty\n";
         m_function_oh_paths[F].pop_back();
         return false;
     }
+    llvm::dbgs() << "\n";
+    dump_path(oh_path.path);
     if (oh_path.process_det_blocks_only) {
         return process_deterministic_part_of_path(F, oh_path);
     }
@@ -1697,6 +1692,7 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
         }
     }
     auto hash_variable = insert_hash_variable(F, oh_path.entry_block);
+    oh_path.hash_variable = hash_variable.first;
     llvm::LoopInfo &LI = getAnalysis<llvm::LoopInfoWrapperPass>(*F).getLoopInfo();
     InstructionSet path_skipped_instructions;
     // TODO TODO TODO: check why we are doing this
@@ -1776,6 +1772,32 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
                                                     skipped_instructions,
                                                     stats);
                                         };
+
+    const auto& deterministic_skip_instruction_pred = [this,
+                                                       &F_input_dependency_info,
+                                                       &argument_reachable_instr,
+                                                       &global_reachable_instr,
+                                                       &skipped_instructions]
+                                             (llvm::Instruction* instr) {
+                                                 if (F_input_dependency_info->isGlobalDependent(instr)) {
+                                                     global_reachable_instr.insert(llvm::dyn_cast<llvm::Instruction>(instr));
+                                                     skipped_instructions.insert(instr);
+                                                 }
+                                                 if (F_input_dependency_info->isArgumentDependent(instr)) {
+                                                     skipped_instructions.insert(instr);
+                                                 }
+                                                 if (isUsingGlobal(instr, global_reachable_instr)) {
+                                                     global_reachable_instr.insert(llvm::dyn_cast<llvm::Instruction>(instr));
+                                                     skipped_instructions.insert(instr);
+                                                     if (auto* store = llvm::dyn_cast<llvm::StoreInst>(instr)) {
+                                                         if (auto* storeTo = llvm::dyn_cast<llvm::Instruction>(store->getPointerOperand())) {
+                                                             global_reachable_instr.insert(storeTo);
+                                                             skipped_instructions.insert(storeTo);
+                                                         }
+                                                     }
+                                                     return false;
+                                                 }
+                                             };
     bool has_inputdep_block = false;
     bool local_hash_updated = false;
     bool insert_assertion = false;
@@ -1784,7 +1806,7 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
             bool can_insert_assertions = can_insert_assertion_at_deterministic_location(F, B, LI);
             if (m_processed_deterministic_blocks.insert(B).second) {
                 modified |= process_block(F, B, can_insert_assertions,
-                                          [this] (llvm::Instruction* instr) { return false; },
+                                          deterministic_skip_instruction_pred,
                                           skipped_instructions);
             }
         } else {
@@ -1818,6 +1840,7 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
 bool ObliviousHashInsertionPass::process_deterministic_part_of_path(llvm::Function* F,
                                                                     short_range_path_oh& oh_path)
 {
+    llvm::dbgs() << "Processing deterministic part of the path only\n";
     bool modified = false;
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
     llvm::LoopInfo &LI = getAnalysis<llvm::LoopInfoWrapperPass>(*F).getLoopInfo();
@@ -2034,7 +2057,8 @@ bool ObliviousHashInsertionPass::is_data_dependent_loop(llvm::Loop* loop) const
     }
     llvm::BasicBlock* header = loop->getHeader();
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(header->getParent());
-    return  F_input_dependency_info->isInputDependentBlock(header);
+    return  (F_input_dependency_info->isInputDependentBlock(header)
+            || F_input_dependency_info->isDataDependent(header->getTerminator()));
 }
 
 bool ObliviousHashInsertionPass::is_argument_reachable_loop(llvm::Loop* loop)
@@ -2042,13 +2066,14 @@ bool ObliviousHashInsertionPass::is_argument_reachable_loop(llvm::Loop* loop)
     if (!loop) {
         return false;
     }
+    llvm::Function* F = loop->getHeader()->getParent();
+    auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
     llvm::SmallVector<llvm::BasicBlock*, 20> loopSpecialBlocks;
     get_loop_special_blocks(loop, loopSpecialBlocks);
-    llvm::Function* F = loop->getHeader()->getParent();
     const auto& argument_reachable_instr = get_argument_reachable_instructions(F);
-    auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
     for (auto& B : loopSpecialBlocks) {
-        if (argument_reachable_instr.find(B->getTerminator()) != argument_reachable_instr.end()) {
+        if (argument_reachable_instr.find(B->getTerminator()) != argument_reachable_instr.end()
+                || F_input_dependency_info->isArgumentDependent(B->getTerminator())) {
             return true;
         }
     }
@@ -2066,7 +2091,8 @@ bool ObliviousHashInsertionPass::is_global_reachable_loop(llvm::Loop* loop)
     const auto& global_reachable_instr = get_global_reachable_instructions(F);
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
     for (auto& B : loopSpecialBlocks) {
-        if (global_reachable_instr.find(B->getTerminator()) != global_reachable_instr.end()) {
+        if (global_reachable_instr.find(B->getTerminator()) != global_reachable_instr.end()
+                || F_input_dependency_info->isGlobalDependent(B->getTerminator())) {
             return true;
         }
     }

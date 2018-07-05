@@ -39,7 +39,6 @@ private:
     int numberOfSensitiveFunctions = 0;
     int numberOfProtectedFunctions = 0;
 
-    int numberOfNonHashableInstructions = 0;
     int numberOfUnprotectedLoopInstructions = 0;
     int numberOfDataDependentInstructions = 0;
     int numberOfUnprotectedArgumentReachableInstructions = 0;
@@ -48,6 +47,7 @@ private:
 
     using BasicBlocksSet = std::unordered_set<llvm::BasicBlock*>;
     BasicBlocksSet m_protectedBlocks;
+    BasicBlocksSet m_shortRangeProtectedBlocks;
     BasicBlocksSet m_unprotectedArgumentReachableLoopBlocks;
     BasicBlocksSet m_unprotectedGlobalReachableLoopBlocks;
     BasicBlocksSet m_unprotectedDataDependentLoopBlocks;
@@ -74,6 +74,7 @@ private:
     void addUnprotectedLoopInstructions(const BasicBlocksSet& blocks);
     void dumpBlocks();
     void dumpInstructions();
+    void check_statistics_validity();
     void addUnprotectedLoopBlock(BasicBlocksSet& unprotectedLoopBlocks, llvm::BasicBlock* B);
     void removeFromUnprotectedLoopBlocks(llvm::BasicBlock* B);
     bool isUnprotectedLoopBlock(llvm::BasicBlock* B) const;
