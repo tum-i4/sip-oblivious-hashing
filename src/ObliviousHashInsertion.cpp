@@ -21,10 +21,10 @@
 #include "llvm/IR/Metadata.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
-
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
+
 
 #include <assert.h>
 #include <boost/algorithm/string/classification.hpp> // Include boost::for is_any_of
@@ -1780,11 +1780,13 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
                                                        &global_reachable_instr,
                                                        &skipped_instructions]
                                              (llvm::Instruction* instr) {
-                                                 if (F_input_dependency_info->isGlobalDependent(instr)) {
+                                                 if (F_input_dependency_info->isGlobalDependent(instr)
+                                                         || global_reachable_instr.find(instr) != global_reachable_instr.end()) {
                                                      global_reachable_instr.insert(llvm::dyn_cast<llvm::Instruction>(instr));
                                                      skipped_instructions.insert(instr);
                                                  }
-                                                 if (F_input_dependency_info->isArgumentDependent(instr)) {
+                                                 if (F_input_dependency_info->isArgumentDependent(instr)
+                                                         || argument_reachable_instr.find(instr) != argument_reachable_instr.end()) {
                                                      skipped_instructions.insert(instr);
                                                  }
                                                  if (isUsingGlobal(instr, global_reachable_instr)) {
@@ -1796,8 +1798,8 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
                                                              skipped_instructions.insert(storeTo);
                                                          }
                                                      }
-                                                     return false;
                                                  }
+                                                 return false;
                                              };
     bool has_inputdep_block = false;
     bool local_hash_updated = false;
@@ -1845,13 +1847,43 @@ bool ObliviousHashInsertionPass::process_deterministic_part_of_path(llvm::Functi
     bool modified = false;
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
     llvm::LoopInfo &LI = getAnalysis<llvm::LoopInfoWrapperPass>(*F).getLoopInfo();
-    InstructionSet skipped_instructions;
+    InstructionSet& skipped_instructions = m_function_skipped_instructions[F];
+    const auto& argument_reachable_instr = get_argument_reachable_instructions(F);
+    auto& global_reachable_instr = get_global_reachable_instructions(F);
+    const auto& deterministic_skip_instruction_pred = [this,
+                                                       &F_input_dependency_info,
+                                                       &argument_reachable_instr,
+                                                       &global_reachable_instr,
+                                                       &skipped_instructions]
+                                             (llvm::Instruction* instr) {
+                                                 if (F_input_dependency_info->isGlobalDependent(instr)
+                                                         || global_reachable_instr.find(instr) != global_reachable_instr.end()) {
+                                                     global_reachable_instr.insert(llvm::dyn_cast<llvm::Instruction>(instr));
+                                                     skipped_instructions.insert(instr);
+                                                 }
+                                                 if (F_input_dependency_info->isArgumentDependent(instr)
+                                                         || argument_reachable_instr.find(instr) != argument_reachable_instr.end()) {
+                                                     skipped_instructions.insert(instr);
+                                                 }
+                                                 if (isUsingGlobal(instr, global_reachable_instr)) {
+                                                     global_reachable_instr.insert(llvm::dyn_cast<llvm::Instruction>(instr));
+                                                     skipped_instructions.insert(instr);
+                                                     if (auto* store = llvm::dyn_cast<llvm::StoreInst>(instr)) {
+                                                         if (auto* storeTo = llvm::dyn_cast<llvm::Instruction>(store->getPointerOperand())) {
+                                                             global_reachable_instr.insert(storeTo);
+                                                             skipped_instructions.insert(storeTo);
+                                                         }
+                                                     }
+                                                 }
+                                                 return false;
+                                             };
+
     for (auto& B : oh_path.path) {
         if (!F_input_dependency_info->isInputDepFunction() && !F_input_dependency_info->isInputDependentBlock(B)) {
             bool can_insert_assertions = can_insert_assertion_at_deterministic_location(F, B, LI);
             if (m_processed_deterministic_blocks.insert(B).second) {
                 modified |= process_block(F, B, can_insert_assertions,
-                                          [] (llvm::Instruction* ) {return false; },
+                                          deterministic_skip_instruction_pred,
                                           skipped_instructions);
             }
         } 
