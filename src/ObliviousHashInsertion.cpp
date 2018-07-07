@@ -569,9 +569,9 @@ void FunctionExtractionHelper::removeUnusedInstructions()
             if (llvm::dyn_cast<llvm::StoreInst>(&I)) {
                 continue;
             }
-            if (llvm::dyn_cast<llvm::AllocaInst>(&I)) {
-                continue;
-            }
+            //if (llvm::dyn_cast<llvm::AllocaInst>(&I)) {
+            //    continue;
+            //}
             if (llvm::dyn_cast<llvm::TerminatorInst>(&I)) {
                 continue;
             }
@@ -1605,6 +1605,7 @@ ObliviousHashInsertionPass::determine_path_processing_settings(llvm::Function* F
             FunctionOHPaths::OHPath original_path = path;
             if (protectDataDepLoops) {
                 shrink_to_body_path(path, loop);
+                oh_path.path = path;
                 oh_path.process_det_blocks_only = false;
                 oh_path.hash_invariants_only = true;
                 oh_path.entry_block = path.front();
@@ -1614,7 +1615,7 @@ ObliviousHashInsertionPass::determine_path_processing_settings(llvm::Function* F
                 // for data indep functions shrinking path may loose information,
                 // while for input dep functions it makes sense to do shrinking
                 //shrink_to_non_loop_path(path, loop);
-                //oh_path.path = path;
+                oh_path.path = path;
                 oh_path.process_det_blocks_only = true;
                 oh_path.hash_invariants_only = false;
                 oh_path.entry_block = path.front();
@@ -1855,6 +1856,7 @@ bool ObliviousHashInsertionPass::process_deterministic_part_of_path(llvm::Functi
             }
         } 
     }
+    m_function_oh_paths[F].pop_back();
     return modified;
 }
 
@@ -1865,7 +1867,7 @@ ObliviousHashInsertionPass::insert_hash_variable(llvm::Function* F,
     llvm::BasicBlock* function_entry_block = &F->getEntryBlock();
     llvm::LLVMContext& function_Ctx = function_entry_block->getContext();
     llvm::LLVMContext &path_Ctx = initialization_block->getContext();
-    auto local_hash = new llvm::AllocaInst(llvm::Type::getInt64Ty(function_Ctx), 0, nullptr, "local_hash");
+    auto local_hash = new llvm::AllocaInst(llvm::Type::getInt64Ty(function_Ctx), 0, nullptr, 8, "local_hash");
     auto alloca_pos = function_entry_block->getInstList().insert(function_entry_block->begin(), local_hash);
     auto local_store = new llvm::StoreInst(llvm::ConstantInt::get(llvm::Type::getInt64Ty(path_Ctx), 0), local_hash, false, 8);
     if (function_entry_block == initialization_block) {
