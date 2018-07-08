@@ -1443,6 +1443,9 @@ void ObliviousHashInsertionPass::extract_path_functions()
         llvm::LoopInfo& LI = getAnalysis<llvm::LoopInfoWrapperPass>(*function_paths.first).getLoopInfo();
         llvm::DominatorTree& domTree = getAnalysis<llvm::DominatorTreeWrapperPass>(*function_paths.first).getDomTree();
         for (auto& path : function_paths.second) {
+            if (!path.path_assert) {
+                continue;
+            }
             FunctionExtractionHelper functionExtractor(function_paths.first,
                                                        path,
                                                        F_input_dependency_info,
@@ -1518,6 +1521,9 @@ bool ObliviousHashInsertionPass::can_protect_loop_block(llvm::BasicBlock* B,
             || F_input_dependency_info->isDataDependent(block_terminator)) {
         data_dep_loop = true;
         return false;
+    }
+    if (!F_input_dependency_info->isInputDepFunction()) {
+        return true;
     }
     if (argument_reachable_instr.find(block_terminator) != argument_reachable_instr.end()
             || F_input_dependency_info->isArgumentDependent(block_terminator)) {
@@ -1604,25 +1610,29 @@ ObliviousHashInsertionPass::determine_path_processing_settings(llvm::Function* F
             assert(is_data_dep_loop || is_arg_reachable_loop || is_glob_reachable_loop);
             FunctionOHPaths::OHPath original_path = path;
             if (protectDataDepLoops) {
+                update_statistics(path, loop, is_data_dep_loop,
+                              is_arg_reachable_loop, is_glob_reachable_loop);
                 shrink_to_body_path(path, loop);
                 oh_path.path = path;
                 oh_path.process_det_blocks_only = false;
                 oh_path.hash_invariants_only = true;
-                oh_path.entry_block = path.front();
-                oh_path.exit_block = path.back();
+                if (!path.empty()) {
+                    oh_path.entry_block = path.front();
+                    oh_path.exit_block = path.back();
+                }
             } else {
                 // TODO: think about this.
                 // for data indep functions shrinking path may loose information,
                 // while for input dep functions it makes sense to do shrinking
                 //shrink_to_non_loop_path(path, loop);
+                update_statistics(path, loop, is_data_dep_loop,
+                              is_arg_reachable_loop, is_glob_reachable_loop);
                 oh_path.path = path;
                 oh_path.process_det_blocks_only = true;
                 oh_path.hash_invariants_only = false;
                 oh_path.entry_block = path.front();
                 oh_path.exit_block = path.back();
             }
-            update_statistics(path, loop, is_data_dep_loop,
-                              is_arg_reachable_loop, is_glob_reachable_loop);
         }
     }
     auto& function_oh_paths = m_function_oh_paths[F];
@@ -1682,14 +1692,21 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
     bool modified = false;
     InstructionSet invariants;
     if (oh_path.hash_invariants_only) {
+        llvm::dbgs() << "Hash path invariants only\n";
         if (!oh_path.loop) {
             llvm::dbgs() << "No loop information for path for which only invariants should be processed\n";
+            m_function_oh_paths[F].pop_back();
             return false;
         }
         invariants = collect_loop_invariants(F, oh_path.loop, oh_path.path);
         if (invariants.empty()) {
             llvm::dbgs() << "No invariant in the path. Skip path\n";
+            m_function_oh_paths[F].pop_back();
             return false;
+        }
+        llvm::dbgs() << "Invariants are\n";
+        for (auto& I : invariants) {
+            llvm::dbgs() << *I << "\n";
         }
     }
     auto hash_variable = insert_hash_variable(F, oh_path.entry_block);
@@ -1726,8 +1743,13 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
                                             if (oh_path.hash_invariants_only) {
                                                 if (invariants.find(instr) == invariants.end()) {
                                                     // TODO: add to stats
-                                                    path_skipped_instructions.insert(instr);
+                                                    skipped_instructions.insert(instr);
+                                                    stats.addUnprotectedLoopVariantInstruction(instr);
                                                     return true;
+                                                } else {
+                                                    // TODO: note that this may be incorrect, e.g. invariant which is
+                                                    // using an argument or a global
+                                                    return false;
                                                 }
                                             }
                                             if (shouldSkipInstruction(instr, path_skipped_instructions)) {
@@ -1816,7 +1838,8 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
             insert_assertion = (B == oh_path.exit_block);
             modified |= process_path_block(F, B, local_hash, insert_assertion,
                                            skip_instruction_pred, local_hash_updated,
-                                           path_num, skipped_instructions, (oh_path.loop == nullptr));
+                                           path_num, skipped_instructions,
+                                           (oh_path.loop == nullptr) || oh_path.hash_invariants_only);
             has_inputdep_block = true;
         }
     }
@@ -2420,6 +2443,9 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
         extract_path_functions();
         insert_calls_for_path_functions();
     }
+
+    //llvm::dbgs() << "Dump instrumented module\n";
+    //M.dump();
 
     if (!DumpOHStat.empty()) {
         dbgs() << "OH stats is requested, dumping stat file...\n";

@@ -61,7 +61,7 @@ private:
     InstructionSet m_unprotectedArgumentReachableInstructions;
     InstructionSet m_unprotectedGlobalReachableInstructions;
     InstructionSet m_unprotectedInstructions;
-
+    InstructionSet m_unprotectedLoopVariantInstructions;
     InstructionSet m_scProtectedGuardInstructions;
 
     using FunctionSet = std::unordered_set<llvm::Function*>;
@@ -95,6 +95,7 @@ public:
     void addUnprotectedArgumentReachableInstruction(llvm::Instruction* I);
     void addUnprotectedGlobalReachableInstruction(llvm::Instruction* I);
     void addUnprotectedInstruction(llvm::Instruction* I);
+    void addUnprotectedLoopVariantInstruction(llvm::Instruction* I);
 
     void addSCProtectedGuardInstr(llvm::Instruction* I, int checkeeSize, int protectedArguments);
     void addSCShortRangeProtectedProtectedGuardInstr(llvm::Instruction* I, int checkeeSize, int protectedArguments);
