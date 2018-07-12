@@ -30,6 +30,7 @@ private:
     int numberOfShortRangeProtectedGuardArguments = 0;
 
     int numberOfSensitiveBlocks = 0;
+    int numberOfSensitiveInstructions = 0;
     int numberOfProtectedBlocks = 0;
     int numberOfShortRangeProtectedBlocks = 0;
     int numberOfUnprotectedDataDependentBlocks = 0;
@@ -100,6 +101,7 @@ public:
     void addSCProtectedGuardInstr(llvm::Instruction* I, int checkeeSize, int protectedArguments);
     void addSCShortRangeProtectedProtectedGuardInstr(llvm::Instruction* I, int checkeeSize, int protectedArguments);
 
+    void addSensitiveInstructions(llvm::Function* F);
     void addFunctionWithNoDg(llvm::Function* F);
     void addFilteredFunction(llvm::Function* F);
     void addFunctionWithNoInputDep(llvm::Function* F);

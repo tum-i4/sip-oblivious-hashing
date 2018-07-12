@@ -1368,10 +1368,14 @@ bool ObliviousHashInsertionPass::skip_function(llvm::Function& F)
         stats.addFilteredFunction(&F);
         return true;
     }
+    //stats.addNumberOfSensitiveBlocks(F.getBasicBlockList().size());
+    //stats.addSensitiveInstructions(&F);
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(&F);
     if (!F_input_dependency_info) {
         llvm::dbgs() << "Skipping function. No input dep info " << F.getName() << "\n";
         stats.addFunctionWithNoInputDep(&F);
+        //stats.addSensitiveInstructions(&F);
+        //stats.addNumberOfSensitiveBlocks(F.getBasicBlockList().size());
         return true;
     }
     if (shortRangeOH) {
@@ -1379,6 +1383,8 @@ bool ObliviousHashInsertionPass::skip_function(llvm::Function& F)
         if (!F_dg) {
             stats.addFunctionWithNoDg(&F);
             llvm::dbgs() << "Skip. No dependence graph for function " << F.getName() << "\n";
+            //stats.addSensitiveInstructions(&F);
+            //stats.addNumberOfSensitiveBlocks(F.getBasicBlockList().size());
             return true;
         }
     }
@@ -1389,6 +1395,7 @@ bool ObliviousHashInsertionPass::process_function(llvm::Function* F)
 {
     llvm::dbgs() << " Processing function:" << F->getName() << "\n";
     stats.addNumberOfSensitiveBlocks(F->getBasicBlockList().size());
+    stats.addSensitiveInstructions(F);
     if (shortRangeOH) {
         llvm::dbgs() << "Short range hashing enabled.\n";
         return process_function_with_short_range_oh_enabled(F);

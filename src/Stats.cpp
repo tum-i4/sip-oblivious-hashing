@@ -51,13 +51,29 @@ void dump_instructions(const std::unordered_set<llvm::Function*> functions)
     }
 }
 
+int getNumberOfInstructionsInFunction(llvm::Function* F)
+{
+    int number = 0;
+    for (auto& B : *F) {
+        number += B.getInstList().size();
+    }
+    return number;
+}
+
 int getNumberOfInstructionsInFunctions(const std::unordered_set<llvm::Function*>& functions)
 {
     int number = 0;
     for (auto& F : functions) {
-        for (auto& B : *F) {
-            number += B.getInstList().size();
-        }
+        number += getNumberOfInstructionsInFunction(F);
+    }
+    return number;
+}
+
+int getNumberOfBlocksInFunctions(const std::unordered_set<llvm::Function*>& functions)
+{
+    int number = 0;
+    for (auto& F : functions) {
+        number += F->getBasicBlockList().size();
     }
     return number;
 }
@@ -295,6 +311,11 @@ void OHStats::addUnprotectedLoopVariantInstruction(llvm::Instruction* I)
     m_unprotectedInstructions.erase(I);
 }
 
+void OHStats::addSensitiveInstructions(llvm::Function* F)
+{
+    numberOfSensitiveInstructions += getNumberOfInstructionsInFunction(F);
+}
+
 void OHStats::addFunctionWithNoDg(llvm::Function* F)
 {
     m_functionsWithNoDG.insert(F);
@@ -510,6 +531,7 @@ void OHStats::dumpJson(std::string filePath){
     j["numberOfInstructionsInFilteredFunctions"] = getNumberOfInstructionsInFunctions(m_filteredFunctions);
     //j["numberOfInstructionsInFunctionsWithNoInputDep"] = getNumberOfInstructionsInFunctions(m_functionsWithNoInputDep);
     j["numberOfInstructionsInFunctionsWithNoDG"] = getNumberOfInstructionsInFunctions(m_functionsWithNoDG);
+    j["numberOfBlocksInFunctionsWithNoDG"] = getNumberOfBlocksInFunctions(m_functionsWithNoDG);
 
     int numberOfProcessedInstrs = getNumberOfInstructionsInFunctions(m_functionsWithNoDG)
         + getNumberOfInstructionsInFunctions(m_filteredFunctions)
@@ -524,7 +546,8 @@ void OHStats::dumpJson(std::string filePath){
         + m_unprotectedInstructions.size()
         + m_unprotectedLoopVariantInstructions.size();
     llvm::dbgs() << "Processed instructions number " << numberOfProcessedInstrs << "\n";
-    j["numberOfOHProcessedInstr"] = numberOfProcessedInstrs;
+    //assert(numberOfProcessedInstrs == numberOfSensitiveInstructions);
+    j["numberOfOHProcessedInstr"] = numberOfSensitiveInstructions;
 
 	std::cout << j.dump(4) << std::endl;
 	std::ofstream o(filePath);
@@ -532,7 +555,7 @@ void OHStats::dumpJson(std::string filePath){
 
     //dumpBlocks();
     //dumpInstructions();
-    check_statistics_validity();
+    //check_statistics_validity();
 }
 
 void OHStats::dumpBlocks()
@@ -711,6 +734,7 @@ void OHStats::check_statistics_validity()
         assert(m_unprotectedArgumentReachableLoopBlocks.find(B) == m_unprotectedDataDependentLoopBlocks.end());
         assert(m_nonHashableBlocks.find(B) == m_nonHashableBlocks.end());
     }
+    processed_blocks += getNumberOfBlocksInFunctions(m_functionsWithNoDG);
     if (processed_blocks != numberOfSensitiveBlocks) {
         llvm::dbgs() << "processed_blocks " << processed_blocks << "\n";
         llvm::dbgs() << "sensitive blocks " << numberOfSensitiveBlocks << "\n";
