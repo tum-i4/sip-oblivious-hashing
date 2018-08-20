@@ -1082,8 +1082,7 @@ bool ObliviousHashInsertionPass::instrumentCallInst(CallInstTy* call,
                                                     llvm::Value* hash_value)
 {
     bool hashInserted = false;
-    llvm::dbgs() << "Processing call instruction..\n";
-    call->dump();
+    llvm::dbgs() << "Processing call instruction.. " << *call << "\n";
     auto called_function = call->getCalledFunction();
     if (called_function == nullptr || called_function->isIntrinsic() ||
             called_function == hashFunc1 || called_function == hashFunc2) {
@@ -1102,8 +1101,7 @@ bool ObliviousHashInsertionPass::instrumentCallInst(CallInstTy* call,
             argHashed = insertHash(*call, const_op, hash_value, false);
             if (!argHashed) {
                 errs() << "ERR. constant int argument passed to insert hash, but "
-                    "failed to hash\n";
-                const_op->dump();
+                    "failed to hash" << *const_op << "\n";
             } else {
                 ++protectedArguments;
             }
@@ -1115,12 +1113,10 @@ bool ObliviousHashInsertionPass::instrumentCallInst(CallInstTy* call,
                     ++protectedArguments;
                 } else {
                     errs() << "ERR. constant int argument passed to insert hash, but "
-                        "failed to hash\n";
-                    load->dump();
+                        "failed to hash" << *load << "\n";
                 }
             } else {
-                llvm::dbgs() << "Can't handle input dependent load operand ";
-                load->dump();
+                llvm::dbgs() << "Can't handle input dependent load operand " << *load << "\n";
             }
         } else {
             llvm::dbgs() << "Can't handle this operand " << *operand
@@ -1182,8 +1178,7 @@ bool ObliviousHashInsertionPass::instrumentCmpInst(llvm::CmpInst* I, llvm::Value
     auto *AddInst = dyn_cast<Instruction>(val);
     bool hashInserted = insertHash(*AddInst, val, hash_value, false);
     if (!hashInserted) {
-        errs() << "Potential ERR: insertHash failed for";
-        val->dump();
+        errs() << "Potential ERR: insertHash failed for " << *val << "\n";
     }
     return hashInserted;
 }
