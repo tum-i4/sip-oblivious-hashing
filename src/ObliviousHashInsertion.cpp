@@ -912,6 +912,17 @@ bool ObliviousHashInsertionPass::isInstAGuard(llvm::Instruction &I) {
   }
   return false;
 }
+
+bool ObliviousHashInsertionPass::is_value_short_range_hashed(llvm::Value* value) const
+{
+    return m_shortRangeHashedValues.find(value) != m_shortRangeHashedValues.end();
+}
+
+bool ObliviousHashInsertionPass::is_value_global_hashed(llvm::Value* value) const
+{
+    return m_globalHashedValues.find(value) != m_globalHashedValues.end();
+}
+
 bool ObliviousHashInsertionPass::insertHash(llvm::Instruction &I,
                                             llvm::Value *v, 
                                             llvm::Value* hash_value,
@@ -971,10 +982,10 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I,
 {
     bool hashInserted = false;
     if (is_local_hash) {
-        if (m_shortRangeHashedInstructions.find(&I) != m_shortRangeHashedInstructions.end()) {
+        if (is_value_short_range_hashed(&I)) {
             return false;
         }
-    } else if (m_globalHashedInstructions.find(&I) != m_globalHashedInstructions.end()) {
+    } else if (is_value_global_hashed(&I)) {
         return false;
     }
     bool isCallGuard = false;
@@ -1015,14 +1026,14 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I,
     } else if (!llvm::dyn_cast<llvm::PHINode>(&I)) {
         for (auto op = I.op_begin(); op != I.op_end(); ++op) {
             auto* val = llvm::dyn_cast<llvm::Value>(&*op);
-            if (val) {
+            if (val && !is_value_short_range_hashed(val) && !is_value_global_hashed(val)) {
                 hashInserted |= insertHash(I, val, hash_to_update, true);
             }
         }
     }
 
     if (hashInserted) {
-        is_local_hash ? m_shortRangeHashedInstructions.insert(&I) : m_globalHashedInstructions.insert(&I);
+        is_local_hash ? m_shortRangeHashedValues.insert(&I) : m_globalHashedValues.insert(&I);
         is_local_hash ? stats.addNumberOfShortRangeHashCalls(1) : stats.addNumberOfHashCalls(1);
         is_local_hash ? stats.addShortRangeProtectedInstruction(&I) : stats.addOhProtectedInstruction(&I);
         if (isCallGuard) {
@@ -1062,10 +1073,10 @@ bool ObliviousHashInsertionPass::instrumentBranchInst(llvm::BranchInst* branchIn
 {
     bool hashInserted = false;
     if (is_local_hash) {
-        if (m_shortRangeHashedInstructions.find(branchInst) != m_shortRangeHashedInstructions.end()) {
+        if (is_value_short_range_hashed(branchInst)) {
             return false;
         }
-    } else if (m_globalHashedInstructions.find(branchInst) != m_globalHashedInstructions.end()) {
+    } else if (is_value_global_hashed(branchInst)) {
         return false;
     }
 
@@ -1487,7 +1498,7 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
                                               FunctionOHPaths::OHPath& path,
                                               unsigned path_num)
 {
-    m_shortRangeHashedInstructions.clear();
+    m_shortRangeHashedValues.clear();
     bool modified = false;
     llvm::dbgs() << "Processing path: ";
     dump_path(path);
@@ -1665,6 +1676,7 @@ bool ObliviousHashInsertionPass::process_path_block(llvm::Function* F, llvm::Bas
     bool modified = false;
     assert(hash_value);
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
+
     for (auto &I : *B) {
         if (can_instrument_instruction(F, &I, skipInstructionPred, skipped_instructions)) {
             local_hash_updated |= instrumentInst(I, hash_value, true);

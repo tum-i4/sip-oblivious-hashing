@@ -38,6 +38,7 @@ class ObliviousHashInsertionPass : public llvm::ModulePass {
 private:
   using BasicBlocksSet = std::unordered_set<llvm::BasicBlock*>;
   using InstructionSet = std::unordered_set<llvm::Instruction*>;
+  using ValueSet = std::unordered_set<llvm::Value*>;
   using SkipFunctionsPred = std::function<bool (llvm::Instruction* instr)>;
 
 public:
@@ -116,6 +117,8 @@ private:
   bool can_insert_assertion_at_location(llvm::Function* F,
                                         llvm::BasicBlock* B,
                                         llvm::LoopInfo& LI);
+  bool is_value_short_range_hashed(llvm::Value* value) const;
+  bool is_value_global_hashed(llvm::Value* value) const;
   bool insertHash(llvm::Instruction &I, llvm::Value *v, llvm::Value* hash_value, bool before);
   bool instrumentInst(llvm::Instruction& I, llvm::Value* hash_to_update, bool is_local_hash);
   bool instrumentBranchInst(llvm::BranchInst* branchInst,
@@ -174,8 +177,8 @@ private:
   std::unordered_map<llvm::Function*, InstructionSet> m_argument_reachable_instructions;
   std::unordered_map<llvm::Function*, InstructionSet> m_global_reachable_instructions;
 
-  InstructionSet m_globalHashedInstructions;
-  InstructionSet m_shortRangeHashedInstructions;
+  ValueSet m_globalHashedValues;
+  ValueSet m_shortRangeHashedValues;
 };
 
 }
