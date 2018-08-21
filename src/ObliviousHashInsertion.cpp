@@ -1137,7 +1137,7 @@ bool ObliviousHashInsertionPass::instrumentCallInst(CallInstTy* call,
 {
     bool hashInserted = false;
     llvm::dbgs() << "Processing call instruction..\n";
-    call->dump();
+    //call->dump();
     auto called_function = call->getCalledFunction();
     if (called_function == nullptr || called_function->isIntrinsic() ||
             called_function == hashFunc1 || called_function == hashFunc2) {
@@ -1157,7 +1157,7 @@ bool ObliviousHashInsertionPass::instrumentCallInst(CallInstTy* call,
             if (!argHashed) {
                 errs() << "ERR. constant int argument passed to insert hash, but "
                     "failed to hash\n";
-                const_op->dump();
+                //const_op->dump();
             } else {
                 ++protectedArguments;
             }
@@ -1170,11 +1170,11 @@ bool ObliviousHashInsertionPass::instrumentCallInst(CallInstTy* call,
                 } else {
                     errs() << "ERR. constant int argument passed to insert hash, but "
                         "failed to hash\n";
-                    load->dump();
+                    //load->dump();
                 }
             } else {
                 llvm::dbgs() << "Can't handle input dependent load operand ";
-                load->dump();
+                //load->dump();
             }
         } else {
             llvm::dbgs() << "Can't handle this operand " << *operand
@@ -1237,7 +1237,7 @@ bool ObliviousHashInsertionPass::instrumentCmpInst(llvm::CmpInst* I, llvm::Value
     bool hashInserted = insertHash(*AddInst, val, hash_value, false);
     if (!hashInserted) {
         errs() << "Potential ERR: insertHash failed for";
-        val->dump();
+        //val->dump();
     }
     return hashInserted;
 }
