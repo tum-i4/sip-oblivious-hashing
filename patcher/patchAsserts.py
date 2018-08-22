@@ -9,10 +9,12 @@ def patch_binary(orig_name, new_name,debug, args):
     #e = ELF(orig_name)
     #result = subprocess.check_output(["gdb", orig_name, "-x", "/home/anahitik/SIP/sip-oblivious-hashing/assertions/gdb_script.txt"]).decode("utf-8")
     
-    cmd = ["gdb", orig_name, "-x", "/home/sip/sip-oblivious-hashing/assertions/gdb_script.txt"]
+    #cmd = ["gdb", orig_name, "-x", "/home/sip/sip-oblivious-hashing/assertions/gdb_script.txt"]
+    cmd = ["gdb", orig_name, "-x", "/home/anahitik/SIP/sip-oblivious-hashing/assertions/gdb_script.txt"]
     if args !='':
         args_splitted = args.split();
-        cmd = ["gdb","-x", "/home/sip/sip-oblivious-hashing/assertions/gdb_script.txt",'--args',orig_name]
+        #cmd = ["gdb","-x", "/home/sip/sip-oblivious-hashing/assertions/gdb_script.txt",'--args',orig_name]
+        cmd = ["gdb","-x", "/home/anahitik/SIP/sip-oblivious-hashing/assertions/gdb_script.txt",'--args',orig_name]
         cmd.extend(args_splitted)
     print cmd
     result = subprocess.check_output(cmd).decode("utf-8")

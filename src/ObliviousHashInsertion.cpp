@@ -187,48 +187,94 @@ bool isLoopLatch(llvm::Loop* loop, llvm::BasicBlock* B)
     return false;
 }
 
-bool is_loop_invariant(const dg::LLVMNode* node,
+bool is_instr_in_loop_path(llvm::Instruction* I,
+                           llvm::Loop* loop,
+                           const FunctionOHPaths::OHPath& path)
+{
+    auto* block = I->getParent();
+    if (loop->contains(block) && FunctionOHPaths::pathContainsBlock(path, block)) {
+        return true;
+    }
+    return false;
+}
+
+// predefinition
+bool is_loop_invariant(llvm::Value* value,
+                       llvm::MemorySSA& memssa,
+                       llvm::Loop* loop,
+                       const FunctionOHPaths::OHPath& path,
+                       const std::unordered_set<llvm::Instruction*>& invariants,
+                       std::unordered_set<llvm::Value*>& processed_values);
+
+bool is_invariant_mem_access(llvm::MemoryAccess* memAccess,
+                             llvm::MemorySSA& memssa,
+                             llvm::Loop* loop,
+                             const FunctionOHPaths::OHPath& path,
+                             const std::unordered_set<llvm::Instruction*>& invariants,
+                             std::unordered_set<llvm::Value*>& processed_values)
+{
+    if (!memAccess) {
+        return true;
+    }
+    if (auto* memDef = llvm::dyn_cast<llvm::MemoryDef>(memAccess)) {
+       auto* memInst = memDef->getMemoryInst(); 
+       if (!memInst) {
+           return false;
+       }
+       if (auto* storeInst = llvm::dyn_cast<llvm::StoreInst>(memInst)) {
+           return is_loop_invariant(storeInst->getValueOperand(), memssa, loop, path, invariants, processed_values);
+       }
+       return false;
+    } else if (auto* memUse = llvm::dyn_cast<llvm::MemoryUse>(memAccess)) {
+        auto* useDef = memUse->getDefiningAccess();
+        return is_invariant_mem_access(useDef, memssa, loop, path, invariants, processed_values);
+    } else if (auto* memPhi = llvm::dyn_cast<llvm::MemoryPhi>(memAccess)) {
+        return false;
+    }
+    assert(false);
+}
+
+bool is_loop_invariant(llvm::Value* value,
+                       llvm::MemorySSA& memssa,
                        llvm::Loop* loop,
                        const FunctionOHPaths::OHPath& path,
                        const std::unordered_set<llvm::Instruction*>& invariants,
                        std::unordered_set<llvm::Value*>& processed_values)
 {
-    if (!node) {
+    if (!value) {
         return true;
     }
-    bool is_invariant = true;
-    unsigned store_num = 0;
-    processed_values.insert(node->getValue());
-    for (auto it = node->rev_data_begin(); it != node->rev_data_end(); ++it) {
-        auto* value = (*it)->getValue();
-        if (!value) {
-            continue;
-        }
-        if (processed_values.find(value) != processed_values.end()) {
-            return false;
-        }
-        auto* instr = llvm::dyn_cast<llvm::Instruction>(value);
-        if (!instr) {
-            continue;
-        }
-        if (llvm::dyn_cast<llvm::StoreInst>(instr)) {
-            if (++store_num > 1) {
-                return false;
-            }
-        }
-        if (llvm::dyn_cast<llvm::ReturnInst>(instr)) {
-            return false;
-        }
-        if (invariants.find(instr) != invariants.end()) {
-            continue;
-        }
-        auto* block = instr->getParent();
-        if (loop->contains(block) && !FunctionOHPaths::pathContainsBlock(path, block)) {
-            return false;
-        }
-        is_invariant &= is_loop_invariant(*it, loop, path, invariants, processed_values);
+    if (llvm::dyn_cast<llvm::Constant>(value)) {
+        return true;
     }
-    return is_invariant;
+    auto* instr = llvm::dyn_cast<llvm::Instruction>(value);
+    if (!instr) {
+        return true;
+    }
+    if (processed_values.find(instr) != processed_values.end()) {
+        return (invariants.find(instr) != invariants.end());
+    }
+    processed_values.insert(value);
+    if (!is_instr_in_loop_path(instr, loop, path)) {
+        return false;
+    }
+    llvm::MemoryAccess* memAccess = memssa.getMemoryAccess(instr); 
+    if (memAccess) {
+        return is_invariant_mem_access(memAccess, memssa, loop, path, invariants, processed_values);
+    }
+    bool is_invariant = true;
+    for (auto it = instr->op_begin(); it != instr->op_end(); ++it) {
+        is_invariant &= is_loop_invariant(*it,
+                                          memssa,
+                                          loop,
+                                          path,
+                                          invariants,
+                                          processed_values);
+        if (!is_invariant) {
+            return false;
+        }
+    }
+    return true;
 }
 
 void dump_path(const FunctionOHPaths::OHPath& path)
@@ -238,6 +284,16 @@ void dump_path(const FunctionOHPaths::OHPath& path)
     }
     llvm::dbgs() << "\n";
 }
+
+void dump_path(const FunctionOHPaths::OHPath& path, std::ofstream& outfile)
+{
+    for (const auto& B : path) {
+        const std::string& name = B->getName();
+        outfile << name << "    ";
+    }
+    outfile << "\n";
+}
+
 
 bool isHashableValue(llvm::Value* v)
 {
@@ -1707,6 +1763,8 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
                                               short_range_path_oh& oh_path,
                                               const unsigned path_num)
 {
+    std::ofstream outfile;
+    outfile.open("new_invariants.txt", std::ios_base::app);
     bool modified = false;
     InstructionSet invariants;
     if (oh_path.hash_invariants_only) {
@@ -1716,16 +1774,26 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
             m_function_oh_paths[F].pop_back();
             return false;
         }
+        if (F->getName() == "update") {
+            llvm::dbgs() << "Stop\n";
+        }
         invariants = collect_loop_invariants(F, oh_path.loop, oh_path.path);
         if (invariants.empty()) {
             llvm::dbgs() << "No invariant in the path. Skip path\n";
             m_function_oh_paths[F].pop_back();
             return false;
         }
-        llvm::dbgs() << "Invariants are\n";
+        const std::string& F_name = F->getName();
+        outfile << "******" << F_name << "********" << "\n";
+        dump_path(oh_path.path, outfile);
+        outfile << "        Invariants are\n";
+        std::string str;
+        llvm::raw_string_ostream rawstr(str);
         for (auto& I : invariants) {
-            llvm::dbgs() << *I << "\n";
+            rawstr << *I << "\n";
         }
+        outfile << rawstr.str() << "\n";
+        outfile.close();
     }
     auto hash_variable = insert_hash_variable(F, oh_path.entry_block);
     oh_path.hash_variable = hash_variable.first;
@@ -1957,13 +2025,9 @@ ObliviousHashInsertionPass::collect_loop_invariants(llvm::Function* F,
                                                     const FunctionOHPaths::OHPath& path)
 {
     InstructionSet invariants;
-    dg::LLVMDependenceGraph* F_dg = m_slicer->getDG(F);
-    if (!F_dg) {
-        llvm::dbgs() << "No dependence graph for function " << F->getName()
-                     << "Can not identify loop invariants\n";
-        return invariants;
-    }
+    llvm::MemorySSA& ssa = getAnalysis<llvm::MemorySSAWrapperPass>(*F).getMSSA();
 
+    std::unordered_set<llvm::Value*> processed_values;
     for (auto& B : path) {
         auto block_invariants = m_block_invariants.insert(std::make_pair(B, InstructionSet()));
         if (!block_invariants.second) {
@@ -1974,10 +2038,10 @@ ObliviousHashInsertionPass::collect_loop_invariants(llvm::Function* F,
             if (invariants.find(&I) != invariants.end()) {
                 continue;
             }
+            llvm::dbgs() << I << "\n";
             
-            auto I_node = F_dg->getNode(&I);
-            std::unordered_set<llvm::Value*> processed_values;
-            if (is_loop_invariant(I_node, loop, path, invariants, processed_values)) {
+            if (is_loop_invariant(&I, ssa, loop, path, invariants, processed_values)) {
+                llvm::dbgs() << "Is invariant " << I << "\n";
                 invariants.insert(&I);
                 block_invariants.first->second.insert(&I);
             }
