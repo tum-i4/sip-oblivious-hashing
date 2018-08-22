@@ -2,49 +2,76 @@ from pwn import *
 import sys, subprocess
 import argparse
 import mmap
+import re
 from shutil import copyfile
-def patch_binary(orig_name, new_name,debug, args):
+def match_placeholders(console_reads):
+    address = r'.*? \#\d+ [ ]+ (0(?:[a-z][a-z]*[0-9]+[a-z0-9]*)) .*? in [ ]+ ((?:[a-z][a-z0-9_]*)) .*?\n'
+    computed = r'\$\d+ .*? (\d+) .*?\n'
+    placeholder = r'\$\d+ .*? (\d+) .*?\n'
+
+    rg = re.compile(address+computed+placeholder,re.IGNORECASE|re.MULTILINE|re.VERBOSE|re.DOTALL)
+    matchobj = rg.findall(console_reads)
+    return matchobj
+
+def patch_binary(orig_name, new_name,debug, args, script):
     patch_map ={}
     expected_hashes={}
     #e = ELF(orig_name)
     #result = subprocess.check_output(["gdb", orig_name, "-x", "/home/anahitik/SIP/sip-oblivious-hashing/assertions/gdb_script.txt"]).decode("utf-8")
-    
     #cmd = ["gdb", orig_name, "-x", "/home/sip/sip-oblivious-hashing/assertions/gdb_script.txt"]
-    cmd = ["gdb", orig_name, "-x", "/home/anahitik/SIP/sip-oblivious-hashing/assertions/gdb_script.txt"]
+    cmd = ["gdb", orig_name, "-x", script]
     if args !='':
         args_splitted = args.split();
-        #cmd = ["gdb","-x", "/home/sip/sip-oblivious-hashing/assertions/gdb_script.txt",'--args',orig_name]
-        cmd = ["gdb","-x", "/home/anahitik/SIP/sip-oblivious-hashing/assertions/gdb_script.txt",'--args',orig_name]
+        cmd = ["gdb","-x", script,'--args',orig_name]
         cmd.extend(args_splitted)
     print cmd
     result = subprocess.check_output(cmd).decode("utf-8")
-    lines = result.splitlines()
-    print result
+    print "gdb ran. Parsing results"
+    tuples = match_placeholders(result)
+    for info in tuples:
+        address = info[0]
+        function = info[1]
+        computed = int(info[2])
+        placeholder = info[3]
+        fld_instr = int(address, 16) - 20
+        expected_hashes[placeholder] = (computed, fld_instr, function)
+    #exit(1)
+    #lines = result.splitlines()
+    #print result
     if "segmentation fault" in result.lower() or "bus error" in result.lower():
         print "GDB patcher segmentation fault detected..."
         exit(1)
-    isThirdLine = False
-    placeholder=""
-    expected_hash = 0
+    #hasFirstLine = False
+    #isThirdLine = False
+    #placeholder=""
+    #expected_hash = 0
 
-    for line in lines:
-        if debug:
-            print line
-        if line.startswith("#1"):
-            words = line.split()
-            fld_instr = int(words[1], 16) - 20
-            function = words[3]
-        if line.startswith("$"):
-            words = line.split()
-            if isThirdLine:
-                placeholder = words[2]
-                isThirdLine = False
-                expected_hashes[placeholder] = (expected_hash, fld_instr, function)
-            else:
-                expected_hash = int(words[2])
-                isThirdLine = True
+    #for line in lines:
+     #   if debug:
+      #      print line
+       # if line.startswith("#1"):
+        #    words = line.split()
+         #   fld_instr = int(words[1], 16) - 20
+          #  function = words[3]
+           # hasFirstLine = True
+       # if hasFirstLine and line.startswith("$"):
+        #    words = line.split()
+         #   if isThirdLine:
+          #      placeholder = words[2]
+           #     hasFirstLine = isThirdLine = False
+            #    expected_hashes[placeholder] = (expected_hash, fld_instr, function)
+           # else:
+            #    try:
+	#	    expected_hash = int(words[2])
+         #           isThirdLine = True
+	#	except TypeError:
+	#	    print 'ERR. Type error expected hash reading from a bad line {}'.format(line)
+         #           break
+        #else:
+         #   hasFirstLine = False
 
-
+    #print expected_hashes
+    #exit(1)
     #e.save(new_name)
     copyfile(orig_name,new_name);
     return expected_hashes
@@ -60,6 +87,7 @@ def patch_address(mm, addr, patch_value):
     mm.seek(addr,os.SEEK_SET)
     mm.write(patch_value)
 def patch_placeholders(filename, placeholders, debug):
+    print "patching placeholders"
     with open(filename, 'r+b') as f:
         mm = mmap.mmap(f.fileno(), 0)
         patch_count = 0
@@ -121,9 +149,13 @@ def main():
     parser.add_argument('-d',action='store', dest='debug', help='Print debug messages',required=False,type=bool, default=False)
     parser.add_argument('-s',action='store', dest='oh_stats_file', help='OH stats file to get the number of patches to be verified at the end of the process',required=False)
     parser.add_argument('-g',action='store', dest='args', required= False, type=str,default='',help='Running arguments to the program to patch')
+    parser.add_argument('-p', action='store', dest='script', required= False, type=str,
+                        default='/home/sip/sip-oblivious-hashing/assertions/gdb_script.txt',
+                        #'/home/anahitik/SIP/sip-oblivious-hashing/assertions/gdb_script.txt',
+                        help='gdb script to use when performing patching')
 
     results = parser.parse_args()
-    placeholders = patch_binary(results.binary,results.new_binary, results.debug,results.args)
+    placeholders = patch_binary(results.binary,results.new_binary, results.debug,results.args, results.script)
     count_patched = patch_placeholders(results.new_binary,placeholders, results.debug)
     print "Patched:",count_patched," in ",results.new_binary," saved as:",results.new_binary
     for placeholder in placeholders:
