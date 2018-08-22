@@ -151,7 +151,7 @@ def main():
     parser.add_argument('-g',action='store', dest='args', required= False, type=str,default='',help='Running arguments to the program to patch')
     parser.add_argument('-p', action='store', dest='script', required= False, type=str,
                         default='/home/sip/sip-oblivious-hashing/assertions/gdb_script.txt',
-                        #'/home/anahitik/SIP/sip-oblivious-hashing/assertions/gdb_script.txt',
+                        #default='/home/anahitik/SIP/sip-oblivious-hashing/assertions/gdb_script.txt',
                         help='gdb script to use when performing patching')
 
     results = parser.parse_args()

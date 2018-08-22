@@ -316,8 +316,10 @@ bool isHashableValue(llvm::Value* v)
 
     if (!valueType->isIntegerTy() && !valueType->isFloatingPointTy()) {
         // Currently we only handle int and float pointers
-        dbgs() << "Non numeric pointers (int and float) are skipped:"
-               << *v << " " << *valueType << "\n";
+        if (!llvm::dyn_cast<llvm::BasicBlock>(v)) {
+            dbgs() << "Non numeric pointers (int and float) are skipped:"
+                << *v << " " << *valueType << "\n";
+        }
         return false;
     }
     return true;
