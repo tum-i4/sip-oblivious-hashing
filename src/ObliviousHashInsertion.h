@@ -54,6 +54,7 @@ public:
         llvm::Function* path_assert = nullptr;
         llvm::Value* hash_variable;
         llvm::Function* extracted_path_function;
+        InstructionSet path_skipped_instructions;
     };
 
 public:
