@@ -571,8 +571,9 @@ void FunctionExtractionHelper::createMissingInstructions()
         if (!FunctionOHPaths::pathContainsBlock(m_path.path, &B)) {
             continue;
         }
-        for (auto& I : B) {
-            auto I_pos = m_valueMap.find(&I);
+        for (auto it = B.begin(); it != B.end(); ++it) {
+            auto* I = &*it;
+            auto I_pos = m_valueMap.find(I);
             if (I_pos == m_valueMap.end()) {
                 continue;
             }
@@ -586,6 +587,7 @@ void FunctionExtractionHelper::createMissingOperands(llvm::Instruction* instr)
     if (!instr) {
         return;
     }
+    bool remove_instr = false;
     llvm::LLVMContext& Ctx = instr->getParent()->getContext();
     auto* entry_block = &m_pathF->getEntryBlock();
     for (auto op = instr->op_begin(); op != instr->op_end(); ++op) {
@@ -596,6 +598,12 @@ void FunctionExtractionHelper::createMissingOperands(llvm::Instruction* instr)
         if (!llvm::dyn_cast<llvm::Instruction>(val)) {
             continue;
         }
+        if (auto* storeInst = llvm::dyn_cast<llvm::StoreInst>(instr)) {
+            if (val == storeInst->getValueOperand()) {
+                remove_instr = true;
+                break;
+            }
+        }
         auto* type = val->getType();
         if (auto* ptrTy = llvm::dyn_cast<llvm::PointerType>(type)) {
             type = ptrTy->getElementType();
@@ -604,7 +612,9 @@ void FunctionExtractionHelper::createMissingOperands(llvm::Instruction* instr)
         entry_block->getInstList().push_front(var);
         m_valueMap.insert(std::make_pair(val, llvm::WeakTrackingVH(var)));
     }
-
+    if (remove_instr) {
+        instr->eraseFromParent();
+    }
 }
 
 void FunctionExtractionHelper::remapPathFunctionInstructions()
@@ -620,26 +630,37 @@ void FunctionExtractionHelper::removeUnusedInstructions()
 {
     std::vector<llvm::Instruction*> instructions_to_remove;
     for (auto& B : *m_pathF) {
-        for (auto& I : B) {
-            if (!I.user_empty()) {
-                continue;
+        for (auto it = B.rbegin(); it != B.rend(); ++it) {
+            auto* I = &*it;
+            if (!I->user_empty()) {
+                bool has_user = false;
+                for (auto user_it = I->user_begin(); user_it != I->user_end(); ++user_it) {
+                    if (std::find(instructions_to_remove.begin(), instructions_to_remove.end(), *user_it) ==
+                            instructions_to_remove.end()) {
+                        has_user = true;
+                        break;
+                    }
+                }
+                if (has_user) {
+                    continue;
+                }
             }
-            if (llvm::dyn_cast<llvm::StoreInst>(&I)) {
+            if (llvm::dyn_cast<llvm::StoreInst>(I)) {
                 continue;
             }
             //if (llvm::dyn_cast<llvm::AllocaInst>(&I)) {
             //    continue;
             //}
-            if (llvm::dyn_cast<llvm::TerminatorInst>(&I)) {
+            if (llvm::dyn_cast<llvm::TerminatorInst>(I)) {
                 continue;
             }
-            if (llvm::dyn_cast<llvm::CallInst>(&I)) {
+            if (llvm::dyn_cast<llvm::CallInst>(I)) {
                 continue;
             }
-            if (llvm::dyn_cast<llvm::InvokeInst>(&I)) {
+            if (llvm::dyn_cast<llvm::InvokeInst>(I)) {
                 continue;
             }
-            instructions_to_remove.push_back(&I);
+            instructions_to_remove.push_back(I);
         }
     }
     auto it = instructions_to_remove.begin();
@@ -1831,7 +1852,7 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
                                             if (oh_path.hash_invariants_only) {
                                                 if (invariants.find(instr) == invariants.end()) {
                                                     // TODO: add to stats
-                                                    skipped_instructions.insert(instr);
+                                                    path_skipped_instructions.insert(instr);
                                                     stats.addUnprotectedLoopVariantInstruction(instr);
                                                     return true;
                                                 } else {
