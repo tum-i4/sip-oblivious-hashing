@@ -1611,7 +1611,7 @@ bool ObliviousHashInsertionPass::can_protect_loop_block(llvm::BasicBlock* B,
     llvm::Function* F = B->getParent();
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
     const auto& argument_reachable_instr = get_argument_reachable_instructions(F);
-    const auto& global_reachable_instr = get_global_reachable_instructions(F);
+    auto& global_reachable_instr = get_global_reachable_instructions(F);
 
     auto* block_terminator = B->getTerminator();
     if (F_input_dependency_info->isInputDependentBlock(B)
@@ -1627,8 +1627,7 @@ bool ObliviousHashInsertionPass::can_protect_loop_block(llvm::BasicBlock* B,
         arg_reachable_loop = true;
         return false;
     }
-    if (global_reachable_instr.find(block_terminator) != global_reachable_instr.end()
-            || F_input_dependency_info->isGlobalDependent(block_terminator)) {
+    if (isUsingGlobal(block_terminator, global_reachable_instr, F_input_dependency_info)) {
         global_reachable_loop = true;
         return false;
     }
@@ -1876,7 +1875,7 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
                                                 stats.addUnprotectedArgumentReachableInstruction(instr);
                                                 return true;
                                             }
-                                            if (isUsingGlobal(instr, global_reachable_instr)) {
+                                            if (isUsingGlobal(instr, global_reachable_instr, F_input_dependency_info)) {
                                                 skipped_instructions.insert(instr);
                                                 global_reachable_instr.insert(instr);
                                                 if (auto* store = llvm::dyn_cast<llvm::StoreInst>(instr)) {
@@ -1920,7 +1919,7 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
                                                          || argument_reachable_instr.find(instr) != argument_reachable_instr.end()) {
                                                      skipped_instructions.insert(instr);
                                                  }
-                                                 if (isUsingGlobal(instr, global_reachable_instr)) {
+                                                 if (isUsingGlobal(instr, global_reachable_instr, F_input_dependency_info)) {
                                                      global_reachable_instr.insert(llvm::dyn_cast<llvm::Instruction>(instr));
                                                      skipped_instructions.insert(instr);
                                                      if (auto* store = llvm::dyn_cast<llvm::StoreInst>(instr)) {
@@ -1997,7 +1996,7 @@ bool ObliviousHashInsertionPass::process_deterministic_part_of_path(llvm::Functi
                                                          || argument_reachable_instr.find(instr) != argument_reachable_instr.end()) {
                                                      skipped_instructions.insert(instr);
                                                  }
-                                                 if (isUsingGlobal(instr, global_reachable_instr)) {
+                                                 if (isUsingGlobal(instr, global_reachable_instr, F_input_dependency_info)) {
                                                      global_reachable_instr.insert(llvm::dyn_cast<llvm::Instruction>(instr));
                                                      skipped_instructions.insert(instr);
                                                      if (auto* store = llvm::dyn_cast<llvm::StoreInst>(instr)) {
@@ -2179,7 +2178,8 @@ bool ObliviousHashInsertionPass::process_block(llvm::Function* F, llvm::BasicBlo
 }
 
 bool ObliviousHashInsertionPass::isUsingGlobal(llvm::Value* value,
-                                               const std::unordered_set<llvm::Instruction*>& global_reachable_instr)
+                                               std::unordered_set<llvm::Instruction*>& global_reachable_instr,
+                                               InputDepResType F_inputDep)
 {
     if (!value) {
         return false;
@@ -2201,12 +2201,22 @@ bool ObliviousHashInsertionPass::isUsingGlobal(llvm::Value* value,
         if (global_reachable_instr.find(instr) != global_reachable_instr.end()) {
             return true;
         }
+        if (F_inputDep->isGlobalDependent(instr)) {
+            global_reachable_instr.insert(instr);
+            return true;
+        }
     }
     if (llvm::dyn_cast<llvm::AllocaInst>(value)) {
         return false;
     }
     for (auto op = user->op_begin(); op != user->op_end(); ++op) {
-        if (isUsingGlobal(llvm::dyn_cast<llvm::Value>(&*op), global_reachable_instr)) {
+        if (auto* op_instr = llvm::dyn_cast<llvm::Instruction>(op)) {
+            if (F_inputDep->isGlobalDependent(op_instr)) {
+                global_reachable_instr.insert(op_instr);
+                return true;
+            }
+        }
+        if (isUsingGlobal(llvm::dyn_cast<llvm::Value>(&*op), global_reachable_instr, F_inputDep)) {
             return true;
         }
     }
@@ -2251,11 +2261,10 @@ bool ObliviousHashInsertionPass::is_global_reachable_loop(llvm::Loop* loop)
     llvm::SmallVector<llvm::BasicBlock*, 20> loopSpecialBlocks;
     get_loop_special_blocks(loop, loopSpecialBlocks);
     llvm::Function* F = loop->getHeader()->getParent();
-    const auto& global_reachable_instr = get_global_reachable_instructions(F);
+    auto& global_reachable_instr = get_global_reachable_instructions(F);
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
     for (auto& B : loopSpecialBlocks) {
-        if (global_reachable_instr.find(B->getTerminator()) != global_reachable_instr.end()
-                || F_input_dependency_info->isGlobalDependent(B->getTerminator())) {
+        if (isUsingGlobal(B->getTerminator(), global_reachable_instr, F_input_dependency_info)) {
             return true;
         }
     }
@@ -2359,12 +2368,7 @@ ObliviousHashInsertionPass::get_argument_reachable_instructions(llvm::Function* 
 ObliviousHashInsertionPass::InstructionSet&
 ObliviousHashInsertionPass::get_global_reachable_instructions(llvm::Function* F)
 {
-    auto pos = m_global_reachable_instructions.find(F);
-    if (pos == m_global_reachable_instructions.end()) {
-        collect_global_reachable_instructions(F);
-        pos = m_global_reachable_instructions.find(F);
-    }
-    return pos->second;
+    return m_global_reachable_instructions[F];
 }
 
 void ObliviousHashInsertionPass::collect_argument_reachable_instructions(llvm::Function* F)
@@ -2412,52 +2416,6 @@ void ObliviousHashInsertionPass::collect_argument_reachable_instructions(llvm::F
         ++arg_it;
     }
     m_argument_reachable_instructions.insert(std::make_pair(F, instructions));
-}
-
-void ObliviousHashInsertionPass::collect_global_reachable_instructions(llvm::Function* F)
-{
-    InstructionSet instructions;
-    dg::LLVMDependenceGraph* F_dg = m_slicer->getDG(F);
-    if (!F_dg) {
-        m_global_reachable_instructions.insert(std::make_pair(F, instructions));
-        return;
-    }
-
-    auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
-    auto global_it = m_M->global_begin();
-    while (global_it != m_M->global_end()) {
-        std::list<dg::LLVMNode*> dg_nodes;
-        auto global_node = F_dg->getNode(&*global_it);
-        if (global_node == nullptr) {
-            ++global_it;
-            continue;
-        }
-        dg_nodes.push_back(global_node);
-        std::unordered_set<dg::LLVMNode*> processed_nodes;
-        while (!dg_nodes.empty()) {
-            auto node = dg_nodes.back();
-            dg_nodes.pop_back();
-            if (!processed_nodes.insert(node).second) {
-                continue;
-            }
-            //llvm::dbgs() << "dg node: " << *node->getValue() << "\n";
-            auto* inst = llvm::dyn_cast<llvm::Instruction>(node->getValue());
-            if (inst && inst->getParent()->getParent() != F) {
-                continue;
-            }
-            auto dep_it = node->data_begin();
-            while (dep_it != node->data_end()) {
-                dg_nodes.push_back(*dep_it);
-                ++dep_it;
-            }
-            if (!inst || inst->getParent()->getParent() != F) {
-                continue;
-            }
-            instructions.insert(inst);
-        }
-        ++global_it;
-    }
-    m_global_reachable_instructions.insert(std::make_pair(F, instructions));
 }
 
 bool ObliviousHashInsertionPass::can_insert_assertion_at_deterministic_location(

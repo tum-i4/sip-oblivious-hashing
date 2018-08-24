@@ -41,6 +41,7 @@ private:
   using InstructionSet = std::unordered_set<llvm::Instruction*>;
   using ValueSet = std::unordered_set<llvm::Value*>;
   using SkipFunctionsPred = std::function<bool (llvm::Instruction* instr)>;
+  using InputDepResType = input_dependency::InputDependencyAnalysisInterface::InputDepResType;
 
 public:
     struct short_range_path_oh
@@ -113,7 +114,8 @@ private:
                      const SkipFunctionsPred& skipInstructionPred,
                      InstructionSet& skipped_instructions);
   bool isUsingGlobal(llvm::Value* value,
-                     const std::unordered_set<llvm::Instruction*>& global_reachable_instr);
+                     std::unordered_set<llvm::Instruction*>& global_reachable_instr,
+                     InputDepResType F_inputDep);
   llvm::Loop* get_path_loop(llvm::Function* F,
                             const FunctionOHPaths::OHPath& path);
   bool can_protect_loop_path(llvm::Function* F,
@@ -139,7 +141,6 @@ private:
   const InstructionSet& get_argument_reachable_instructions(llvm::Function* F);
   InstructionSet& get_global_reachable_instructions(llvm::Function* F);
   void collect_argument_reachable_instructions(llvm::Function* F);
-  void collect_global_reachable_instructions(llvm::Function* F);
   bool can_insert_assertion_at_deterministic_location(llvm::Function* F,
                                                       llvm::BasicBlock* B,
                                                       llvm::LoopInfo& LI);
