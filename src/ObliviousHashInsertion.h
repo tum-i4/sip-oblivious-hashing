@@ -5,7 +5,6 @@
 #include "FunctionOHPaths.h"
 #include "MemoryDefinitionData.h"
 #include "Stats.h"
-#include "Slicer.h"
 #include "input-dependency/InputDependencyAnalysisPass.h"
 #include "../../self-checksumming/src/FunctionInfo.h"
 
@@ -138,9 +137,8 @@ private:
                            llvm::Loop* path_loop);
   void shrink_to_non_loop_path(FunctionOHPaths::OHPath& path,
                                llvm::Loop* path_loop);
-  const InstructionSet& get_argument_reachable_instructions(llvm::Function* F);
+  InstructionSet& get_argument_reachable_instructions(llvm::Function* F);
   InstructionSet& get_global_reachable_instructions(llvm::Function* F);
-  void collect_argument_reachable_instructions(llvm::Function* F);
   bool can_insert_assertion_at_deterministic_location(llvm::Function* F,
                                                       llvm::BasicBlock* B,
                                                       llvm::LoopInfo& LI);
@@ -181,7 +179,6 @@ private:
   FunctionInformation* m_function_mark_info;
   FunctionInformation* m_function_filter_info;
   const FunctionCallSiteData* m_function_callsite_data;
-  std::unique_ptr<Slicer> m_slicer;
 
   bool m_hashUpdated;
   bool hasTagsToSkip;
