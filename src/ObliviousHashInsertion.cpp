@@ -912,6 +912,7 @@ llvm::Function* get_assert_function_with_name(llvm::Module* M,
 
 char ObliviousHashInsertionPass::ID = 0;
 const std::string ObliviousHashInsertionPass::oh_path_functions_callee = "oh_path_functions";
+const std::string ObliviousHashInsertionPass::oh_path_calls = "oh_path_calls";
 const std::string GUARD_META_DATA = "guard";
 
 static cl::opt<std::string>
@@ -1506,14 +1507,15 @@ void ObliviousHashInsertionPass::extract_path_functions()
 
 void ObliviousHashInsertionPass::insert_calls_for_path_functions()
 {
+    // Insert function which calls oh path functions
     llvm::FunctionType *function_type = llvm::FunctionType::get(llvm::Type::getVoidTy(m_M->getContext()),
                                                                 llvm::ArrayRef<llvm::Type*>(), false);
-    auto* path_functions_callee = llvm::dyn_cast<llvm::Function>(m_M->getOrInsertFunction(oh_path_functions_callee,
+    auto* oh_path_callsF = llvm::dyn_cast<llvm::Function>(m_M->getOrInsertFunction(oh_path_calls,
                                                                                           function_type));
-    llvm::LLVMContext& Ctx = path_functions_callee->getContext();
+    llvm::LLVMContext& Ctx = oh_path_callsF->getContext();
     llvm::BasicBlock* entry_block = llvm::BasicBlock::Create(Ctx,
                                                              "entry",
-                                                             path_functions_callee);
+                                                             oh_path_callsF);
     llvm::IRBuilder<> builder(Ctx);
     for (auto& function_paths : m_function_oh_paths) {
         for (auto& path : function_paths.second) {
@@ -1523,6 +1525,19 @@ void ObliviousHashInsertionPass::insert_calls_for_path_functions()
     }
     llvm::ReturnInst::Create(Ctx, entry_block);
 
+    // Insert function that calls oh_path_functions_callee function
+    auto* oh_path_functions_calleeF = llvm::dyn_cast<llvm::Function>(m_M->getOrInsertFunction(oh_path_functions_callee,
+                                                                                              function_type));
+    llvm::LLVMContext& Ctx1 = oh_path_functions_calleeF->getContext();
+    llvm::BasicBlock* entry_block1 = llvm::BasicBlock::Create(Ctx1,
+                                                             "entry",
+                                                             oh_path_functions_calleeF);
+    llvm::IRBuilder<> builder1(Ctx1);
+    builder1.SetInsertPoint(entry_block1);
+    builder1.CreateCall(oh_path_callsF, llvm::ArrayRef<llvm::Value*>());
+    llvm::ReturnInst::Create(Ctx1, entry_block1);
+
+    // Insert call to oh_path_calls in main
     llvm::Function* mainF = m_M->getFunction("main");
     if (!mainF) {
         llvm::dbgs() << "No main function. Can not insert calls to extracted path functions\n";
@@ -1530,7 +1545,7 @@ void ObliviousHashInsertionPass::insert_calls_for_path_functions()
     }
     llvm::IRBuilder<> main_builder(mainF->getContext());
     main_builder.SetInsertPoint(&*mainF->getEntryBlock().getFirstInsertionPt());
-    main_builder.CreateCall(path_functions_callee, llvm::ArrayRef<llvm::Value*>());
+    main_builder.CreateCall(oh_path_functions_calleeF, llvm::ArrayRef<llvm::Value*>());
 }
 
 llvm::Loop* ObliviousHashInsertionPass::get_path_loop(llvm::Function* F, const FunctionOHPaths::OHPath& path)
