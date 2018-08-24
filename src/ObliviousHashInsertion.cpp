@@ -529,7 +529,7 @@ void FunctionExtractionHelper::clonePathInstructions()
         assert(clonedB);
         auto& instructions = clonedB->getInstList();
         for (auto& I : *path_B) {
-            if (m_skippedInstrs.find(&I) != m_skippedInstrs.end()
+            if (m_path.path_skipped_instructions.find(&I) != m_path.path_skipped_instructions.end()
                 && !llvm::dyn_cast<llvm::AllocaInst>(&I)) {
                 continue;
             }
@@ -1863,6 +1863,7 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
                                                 if (invariants.find(instr) == invariants.end()) {
                                                     // TODO: add to stats
                                                     path_skipped_instructions.insert(instr);
+                                                    oh_path.path_skipped_instructions.insert(instr);
                                                     stats.addUnprotectedLoopVariantInstruction(instr);
                                                     return true;
                                                 } else {
@@ -1980,6 +1981,8 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
         local_store->eraseFromParent();
         local_hash->eraseFromParent();
         m_function_oh_paths[F].pop_back();
+    } else {
+        oh_path.path_skipped_instructions.insert(skipped_instructions.begin(), skipped_instructions.end());
     }
     return modified;
 }
