@@ -1,7 +1,7 @@
-#include "FunctionCallSitesInformation.h"
+#include "oblivious-hashing/FunctionCallSitesInformation.h"
 
-#include "input-dependency/FunctionInputDependencyResultInterface.h"
-#include "input-dependency/IndirectCallSitesAnalysis.h"
+#include "input-dependency/Analysis/FunctionInputDependencyResultInterface.h"
+#include "input-dependency/Analysis/IndirectCallSitesAnalysis.h"
 
 #include "llvm/ADT/SCCIterator.h"
 #include "llvm/Analysis/CallGraph.h"

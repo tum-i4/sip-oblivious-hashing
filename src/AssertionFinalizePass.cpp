@@ -1,7 +1,7 @@
-#include "AssertionFinalizePass.h"
-#include "ObliviousHashInsertion.h"
+#include "oblivious-hashing/AssertionFinalizePass.h"
+#include "oblivious-hashing/ObliviousHashInsertion.h"
 
-#include "Utils.h"
+#include "oblivious-hashing/Utils.h"
 
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Function.h"
