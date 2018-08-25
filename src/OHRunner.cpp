@@ -1,4 +1,4 @@
-#include "OHRunner.h"
+#include "oblivious-hashing/OHRunner.h"
 
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Function.h"
@@ -7,10 +7,10 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
-#include "../../self-checksumming/src/FunctionFilter.h"
-#include "../../self-checksumming/src/FunctionMarker.h"
+#include "self-checksumming/FunctionFilter.h"
+#include "self-checksumming/FunctionMarker.h"
 
-#include "input-dependency/FunctionInputDependencyResultInterface.h"
+#include "input-dependency/Analysis/FunctionInputDependencyResultInterface.h"
 
 #include <boost/algorithm/string/classification.hpp> // Include boost::for is_any_of
 #include <boost/algorithm/string/split.hpp>          // Include for boost::split

@@ -2,7 +2,7 @@
 
 #include "llvm/Pass.h"
 
-#include "input-dependency/InputDependencyAnalysisPass.h"
+#include "input-dependency/Analysis/InputDependencyAnalysisPass.h"
 
 #include <unordered_map>
 #include <unordered_set>

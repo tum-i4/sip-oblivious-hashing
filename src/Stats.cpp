@@ -1,12 +1,14 @@
-#include "Stats.h"
+#include "oblivious-hashing/Stats.h"
 
 #include "llvm/IR/Function.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
-#include "input-dependency/FunctionInputDependencyResultInterface.h"
+#include "input-dependency/Analysis/FunctionInputDependencyResultInterface.h"
 
 #include <fstream>
+#include <iomanip>
+#include <iostream>
 
 namespace {
 

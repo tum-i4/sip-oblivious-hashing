@@ -1,7 +1,7 @@
-#include "json.hpp"
+#include "nlohmann/json.hpp"
 #include <unordered_set>
 
-#include "input-dependency/InputDependencyAnalysisPass.h"
+#include "input-dependency/Analysis/InputDependencyAnalysisPass.h"
 
 namespace llvm {
 class BasicBlock;
