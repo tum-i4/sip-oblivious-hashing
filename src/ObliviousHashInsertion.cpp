@@ -45,6 +45,36 @@ using namespace llvm;
 namespace oh {
 
 namespace {
+
+bool checkTerminators(llvm::Module& M)
+{
+    for (auto& F : M) {
+        if (F.isDeclaration()) {
+            continue;
+        }
+        for (auto& B : F) {
+            for (auto& I : B) {
+                auto* termInst = llvm::dyn_cast<llvm::TerminatorInst>(&I);
+                if (!termInst) {
+                    continue;
+                }
+                if (termInst != B.getTerminator()) {
+                    llvm::dbgs() << "Terminator found in the middle of a basic block!\n";
+                    llvm::dbgs() << *termInst << "\n";
+                    llvm::dbgs() << F.getName() << "    " << B.getName() << "\n";
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+bool verifyModule(llvm::Module& M)
+{
+    return checkTerminators(M);
+}
+
 unsigned get_random(unsigned range) { return rand() % range; }
 
 std::vector<std::string> parse_functions_in_order(const std::string& file_name)
@@ -2251,12 +2281,22 @@ void ObliviousHashInsertionPass::extend_loop_path(llvm::Function* F,
         }
     }
     // setup exiting block for loop path
-    if (path_loop->contains(extended_path.back())) {
+    bool needs_new_exit_block = path_loop->contains(extended_path.back());
+    needs_new_exit_block |= (llvm::dyn_cast<llvm::UnreachableInst>(extended_path.back()->getTerminator()) != nullptr);
+    if (needs_new_exit_block) {
         llvm::SmallVector<llvm::BasicBlock*, 8> exitBlocks;
         path_loop->getExitBlocks(exitBlocks);
-        if (!exitBlocks.empty()) {
-            extended_path.push_back(exitBlocks[0]);
-        } else {
+        bool exit_block_set = false;
+        for (auto& exitingBlock : exitBlocks) {
+            bool is_exit_block = (llvm::dyn_cast<llvm::UnreachableInst>(exitingBlock->getTerminator()) == nullptr);
+            is_exit_block &= !FunctionOHPaths::pathContainsBlock(extended_path, exitingBlock);
+            if (is_exit_block) {
+                extended_path.push_back(exitingBlock);
+                exit_block_set = true;
+                break;
+            }
+        }
+        if (!exit_block_set) {
             llvm::dbgs() << "Warning: No exit block for loop. The path may be malformed\n";
         }
     }
@@ -2504,6 +2544,9 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
         insert_calls_for_path_functions();
     }
 
+    //if (!checkTerminators(M)) {
+    //    exit(1);
+    //}
     //llvm::dbgs() << "Dump instrumented module\n";
     //M.dump();
 
