@@ -1,6 +1,6 @@
-#include "ObliviousHashInsertion.h"
-#include "FunctionCallSitesInformation.h"
-#include "Utils.h"
+#include "oblivious-hashing/ObliviousHashInsertion.h"
+#include "oblivious-hashing/FunctionCallSitesInformation.h"
+#include "oblivious-hashing/Utils.h"
 
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/AliasAnalysis.h"
@@ -36,10 +36,10 @@
 #include <sstream>
 #include <string>
 
-#include "../../self-checksumming/src/FunctionFilter.h"
-#include "../../self-checksumming/src/FunctionMarker.h"
+#include "self-checksumming/FunctionFilter.h"
+#include "self-checksumming/FunctionMarker.h"
 
-#include "input-dependency/FunctionInputDependencyResultInterface.h"
+#include "input-dependency/Analysis/FunctionInputDependencyResultInterface.h"
 
 using namespace llvm;
 namespace oh {
@@ -384,19 +384,19 @@ void FunctionExtractionHelper::extractFunction()
 
     // debug
     //llvm::dbgs() << "Path function structure\n";
-    //m_pathF->dump();
+    //m_pathF->print(llvm::dbgs(), true);
 
     clonePathInstructions();
     // debug
     //llvm::dbgs() << "Path function after clonning hashed instructions\n";
-    //m_pathF->dump();
+    //m_pathF->print(llvm::dbgs(), true);
 
     createMissingInstructions();
 
     adjustBlockTerminators();
     // debug
     //llvm::dbgs() << "Path function after adjusting terminating instructions\n";
-    //m_pathF->dump();
+    //m_pathF->print(llvm::dbgs(), true);
 
     remapPathFunctionInstructions();
     removeUnusedInstructions();
@@ -404,7 +404,7 @@ void FunctionExtractionHelper::extractFunction()
 
     //// debug
     //llvm::dbgs() << "Final path function\n";
-    //m_pathF->dump();
+    //m_pathF->print(llvm::dbgs(), true);
 }
 
 llvm::Function* FunctionExtractionHelper::createPathFunction()
@@ -1083,7 +1083,7 @@ bool ObliviousHashInsertionPass::instrumentCallInst(CallInstTy* call,
 {
     bool hashInserted = false;
     llvm::dbgs() << "Processing call instruction..\n";
-    call->dump();
+    call->print(llvm::dbgs());
     auto called_function = call->getCalledFunction();
     if (called_function == nullptr || called_function->isIntrinsic() ||
             called_function == hashFunc1 || called_function == hashFunc2) {
@@ -1103,7 +1103,7 @@ bool ObliviousHashInsertionPass::instrumentCallInst(CallInstTy* call,
             if (!argHashed) {
                 errs() << "ERR. constant int argument passed to insert hash, but "
                     "failed to hash\n";
-                const_op->dump();
+                const_op->print(llvm::dbgs(), true);
             } else {
                 ++protectedArguments;
             }
@@ -1116,11 +1116,11 @@ bool ObliviousHashInsertionPass::instrumentCallInst(CallInstTy* call,
                 } else {
                     errs() << "ERR. constant int argument passed to insert hash, but "
                         "failed to hash\n";
-                    load->dump();
+                    load->print(llvm::dbgs(), true);
                 }
             } else {
                 llvm::dbgs() << "Can't handle input dependent load operand ";
-                load->dump();
+                load->print(llvm::dbgs(), true);
             }
         } else {
             llvm::dbgs() << "Can't handle this operand " << *operand
@@ -1183,7 +1183,7 @@ bool ObliviousHashInsertionPass::instrumentCmpInst(llvm::CmpInst* I, llvm::Value
     bool hashInserted = insertHash(*AddInst, val, hash_value, false);
     if (!hashInserted) {
         errs() << "Potential ERR: insertHash failed for";
-        val->dump();
+        val->print(llvm::dbgs(), true);
     }
     return hashInserted;
 }

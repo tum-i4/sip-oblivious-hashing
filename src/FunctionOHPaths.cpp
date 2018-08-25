@@ -1,4 +1,4 @@
-#include "FunctionOHPaths.h"
+#include "oblivious-hashing/FunctionOHPaths.h"
 
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Function.h"
@@ -265,7 +265,7 @@ bool FunctionOHPathsPass::runOnFunction(llvm::Function& F)
     } else {
         llvm::dbgs() << "  error opening file for writing!";
     }
-    //paths.dump();
+    //paths.print(llvm::dbgs());
 
     return false;
 }

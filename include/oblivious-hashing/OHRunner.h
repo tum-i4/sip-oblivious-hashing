@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Stats.h"
-#include "input-dependency/InputDependencyAnalysisPass.h"
+#include "oblivious-hashing/Stats.h"
+#include "input-dependency/Analysis/InputDependencyAnalysisPass.h"
 
 #include <vector>
 

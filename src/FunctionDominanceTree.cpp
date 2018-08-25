@@ -1,4 +1,4 @@
-#include "FunctionDominanceTree.h"
+#include "oblivious-hashing/FunctionDominanceTree.h"
 
 #include "llvm/ADT/SCCIterator.h"
 #include "llvm/Analysis/CallGraph.h"
@@ -85,7 +85,7 @@ FunctionDominanceTree::get_function_dominators(llvm::Function *f) const {
 
 void FunctionDominanceTree::dump() const {
   for (const auto &function_node : function_dominators) {
-    function_node.second->dump();
+    function_node.second->print(llvm::dbgs());
   }
 }
 
@@ -119,7 +119,7 @@ bool FunctionDominanceTreePass::runOnModule(llvm::Module &M) {
     }
     ++CGI;
   }
-  // dominance_tree.dump();
+  // dominance_tree.print(llvm::dbgs());
   return false;
 }
 
