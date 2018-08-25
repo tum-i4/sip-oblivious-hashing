@@ -1,4 +1,4 @@
-#include "Slicer.h"
+#include "oblivious-hashing/Slicer.h"
 
 // llvm includes
 #include "llvm/IR/Constants.h"

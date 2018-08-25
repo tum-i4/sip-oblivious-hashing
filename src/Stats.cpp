@@ -1,4 +1,4 @@
-#include "Stats.h"
+#include "oblivious-hashing/Stats.h"
 
 #include "llvm/IR/Function.h"
 #include "llvm/IR/BasicBlock.h"
@@ -6,6 +6,8 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <fstream>
+#include <iomanip>
+#include <iostream>
 
 namespace {
 

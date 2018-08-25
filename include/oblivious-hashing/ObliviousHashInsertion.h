@@ -6,8 +6,8 @@
 #include "MemoryDefinitionData.h"
 #include "Stats.h"
 #include "Slicer.h"
-#include "input-dependency/InputDependencyAnalysisPass.h"
-#include "../../self-checksumming/src/FunctionInfo.h"
+#include "input-dependency/Analysis/InputDependencyAnalysisPass.h"
+#include "self-checksumming/FunctionInfo.h"
 
 #include "llvm/IR/IRBuilder.h"
 
