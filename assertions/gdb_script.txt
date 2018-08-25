@@ -1,0 +1,14 @@
+b response
+commands
+return
+continue
+end
+b assert
+commands
+bt
+print *hash
+print expected
+continue
+end
+run
+q

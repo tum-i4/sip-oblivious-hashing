@@ -1,1 +1,9 @@
 src/.*.swp
+
+build/
+tests/
+*.o
+*.s
+*.bc
+*.ll
+.*.swp

@@ -1,7 +1,7 @@
-#include "AssertionInsertionPass.h"
-#include "ObliviousHashInsertion.h"
+#include "oblivious-hashing/AssertionInsertionPass.h"
+#include "oblivious-hashing/ObliviousHashInsertion.h"
 
-#include "Utils.h"
+#include "oblivious-hashing/Utils.h"
 
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Function.h"
@@ -60,8 +60,8 @@ void AssertionInsertionPass::parse_hashes() {
   hashes.resize(100000);
   std::ifstream hash_strm;
   hash_strm.open("hashes.log");
-  if(!hash_strm.good()){
-    llvm::errs()<<"ERR. hashes.log file cannot be found!\n";
+  if (!hash_strm.good()) {
+    llvm::errs() << "ERR. hashes.log file cannot be found!\n";
     exit(1);
   }
   std::string id_str;
