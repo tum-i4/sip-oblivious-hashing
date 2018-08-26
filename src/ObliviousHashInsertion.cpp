@@ -1832,9 +1832,6 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
             m_function_oh_paths[F].pop_back();
             return false;
         }
-        if (F->getName() == "update") {
-            llvm::dbgs() << "Stop\n";
-        }
         invariants = collect_loop_invariants(F, oh_path.loop, oh_path.path);
         if (invariants.empty()) {
             llvm::dbgs() << "No invariant in the path. Skip path\n";
@@ -1896,11 +1893,12 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
                                                     oh_path.path_skipped_instructions.insert(instr);
                                                     stats.addUnprotectedLoopVariantInstruction(instr);
                                                     return true;
-                                                } else {
-                                                    // TODO: note that this may be incorrect, e.g. invariant which is
-                                                    // using an argument or a global
-                                                    return false;
                                                 }
+                                                //else {
+                                                //    // TODO: note that this may be incorrect, e.g. invariant which is
+                                                //    // using an argument or a global
+                                                //    return false;
+                                                //}
                                             }
                                             if (shouldSkipInstruction(instr, path_skipped_instructions)) {
                                                 stats.addUnprotectedInstruction(instr);
@@ -2107,10 +2105,7 @@ ObliviousHashInsertionPass::collect_loop_invariants(llvm::Function* F,
             if (invariants.find(&I) != invariants.end()) {
                 continue;
             }
-            llvm::dbgs() << I << "\n";
-            
             if (is_loop_invariant(&I, ssa, loop, path, invariants, processed_values)) {
-                llvm::dbgs() << "Is invariant " << I << "\n";
                 invariants.insert(&I);
                 block_invariants.first->second.insert(&I);
             }
