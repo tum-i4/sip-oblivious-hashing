@@ -107,7 +107,8 @@ bool skipInstruction(llvm::Instruction& I)
     if (auto callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
         auto calledF = callInst->getCalledFunction();
         if (calledF && (calledF->getName() == "assert" 
-            || calledF->getName() == "hash1" || calledF->getName() == "hash2")) {
+                    || calledF->getName() == ObliviousHashInsertionPass::oh_hash1_name
+                    || calledF->getName() == ObliviousHashInsertionPass::oh_hash2_name)) {
             return true;
         }
         // evaluate dependency of call load arguments
@@ -945,6 +946,8 @@ llvm::Function* get_assert_function_with_name(llvm::Module* M,
 char ObliviousHashInsertionPass::ID = 0;
 const std::string ObliviousHashInsertionPass::oh_path_functions_callee = "oh_path_functions";
 const std::string ObliviousHashInsertionPass::oh_path_calls = "oh_path_calls";
+const std::string ObliviousHashInsertionPass::oh_hash1_name = "oh_hash1";
+const std::string ObliviousHashInsertionPass::oh_hash2_name = "oh_hash2";
 const std::string GUARD_META_DATA = "guard";
 
 static cl::opt<std::string>
@@ -1383,8 +1386,8 @@ void ObliviousHashInsertionPass::setup_functions()
     llvm::ArrayRef<llvm::Type *> params {llvm::Type::getInt64PtrTy(Ctx),
                                          llvm::Type::getInt64Ty(Ctx)};
     llvm::FunctionType *function_type = llvm::FunctionType::get(llvm::Type::getVoidTy(Ctx), params, false);
-    hashFunc1 = llvm::dyn_cast<llvm::Function>(m_M->getOrInsertFunction("hash1", function_type));
-    hashFunc2 = llvm::dyn_cast<llvm::Function>(m_M->getOrInsertFunction("hash2", function_type));
+    hashFunc1 = llvm::dyn_cast<llvm::Function>(m_M->getOrInsertFunction(ObliviousHashInsertionPass::oh_hash1_name, function_type));
+    hashFunc2 = llvm::dyn_cast<llvm::Function>(m_M->getOrInsertFunction(ObliviousHashInsertionPass::oh_hash2_name, function_type));
     assert = llvm::dyn_cast<llvm::Function>(m_M->getOrInsertFunction("assert", function_type));
 }
 

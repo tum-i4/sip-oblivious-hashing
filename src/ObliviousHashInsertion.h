@@ -172,6 +172,8 @@ private:
 public:
     static const std::string oh_path_functions_callee;
     static const std::string oh_path_calls;
+    static const std::string oh_hash1_name;
+    static const std::string oh_hash2_name;
 
 private:
   llvm::Module* m_M;

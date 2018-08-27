@@ -33,12 +33,12 @@ void assert(long long* hash, long long expected) {
 
 }
 
-void hash1(long long *hashVariable, long long value) {
+void oh_hash1(long long *hashVariable, long long value) {
 	*hashVariable = *hashVariable + value;
 	if(DEBUG2) printf("[h1] Hash=%lld, Value=%lld\n", *hashVariable, value);
 }
 
-void hash2(long long *hashVariable, long long value) {
+void oh_hash2(long long *hashVariable, long long value) {
 	*hashVariable = *hashVariable ^ value;
 	if(DEBUG2) printf("[h2] Hash=%lld, Value=%lld\n", *hashVariable, value);
 }
