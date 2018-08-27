@@ -21,9 +21,19 @@ def patch_binary(orig_name, new_name,debug, args, script):
     #cmd = ["gdb", orig_name, "-x", "/home/sip/sip-oblivious-hashing/assertions/gdb_script.txt"]
     cmd = ["gdb", orig_name, "-x", script]
     if args !='':
-        args_splitted = args.split();
-        cmd = ["gdb","-x", script,'--args',orig_name]
-        cmd.extend(args_splitted)
+        #set_args = "\'set args"
+        #set_args += args
+        #set_args += "\'"
+        #cmd = ["gdb", "-ex", eval(set_args), "-x", script, orig_name]
+        if '>' in args or '<' in args:
+            set_args = "\'set args"
+            set_args += args
+            set_args += "\'"
+            cmd = ["gdb", "-ex", eval(set_args), "-x", script, orig_name]
+        else :
+            args_splitted = args.split();
+            cmd = ["gdb","-x", script,'--args',orig_name]
+            cmd.extend(args_splitted)
     print cmd
     result = subprocess.check_output(cmd).decode("utf-8")
     shrtnd_result = ""
@@ -157,7 +167,7 @@ def main():
     parser.add_argument('-g',action='store', dest='args', required= False, type=str,default='',help='Running arguments to the program to patch')
     parser.add_argument('-p', action='store', dest='script', required= False, type=str,
                         default='/home/sip/sip-oblivious-hashing/assertions/gdb_script.txt',
-                        #'/home/anahitik/SIP/sip-oblivious-hashing/assertions/gdb_script.txt',
+                        #default='/home/anahitik/SIP/sip-oblivious-hashing/assertions/gdb_script.txt',
                         help='gdb script to use when performing patching')
 
     results = parser.parse_args()
