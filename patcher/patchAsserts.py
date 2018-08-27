@@ -26,8 +26,13 @@ def patch_binary(orig_name, new_name,debug, args, script):
         cmd.extend(args_splitted)
     print cmd
     result = subprocess.check_output(cmd).decode("utf-8")
+    shrtnd_result = ""
+    for line in result.splitlines():
+        if line.startswith('#') or line.startswith('$'):
+             shrtnd_result += line+"\n"
+    #print shrtnd_result
     print "gdb ran. Parsing results"
-    tuples = match_placeholders(result)
+    tuples = match_placeholders(shrtnd_result)
     for info in tuples:
         address = info[0]
         function = info[1]
@@ -128,6 +133,7 @@ def patch_block(file_name,address, size):
     for i in range(size-1):
         nop_list.append(0x90)
     nop_bytes = struct.pack('B'*len(nop_list),*nop_list)
+    print "Noping {} bytes @ {}".format(len(nop_bytes),hex(address))
     with open(file_name, 'r+b') as f:
         mm = mmap.mmap(f.fileno(), 0)
         mm.seek(address,os.SEEK_SET)
