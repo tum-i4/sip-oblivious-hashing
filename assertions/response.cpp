@@ -18,7 +18,7 @@ extern "C" {
 
 void response() {
 	printf("Response mechanism.\n");
-//	exit(1);
+	exit(777);
 }
 
 void do_assert(long long* hash, long long expected)

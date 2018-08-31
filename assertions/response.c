@@ -7,7 +7,7 @@
 
 void response() {
 	printf("Response mechanism.\n");
-//	exit(1);
+	exit(777);
 }
 
 void assert(long long* hash, long long expected) {
