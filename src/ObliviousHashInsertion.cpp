@@ -166,6 +166,11 @@ bool isDefinedInAnotherPath(const MemoryDefinitionData::DefInfos& def_infos,
             skipped_instructions.insert(instr);
             return true;
         }
+        if (auto* callInst = llvm::dyn_cast<llvm::CallInst>(def_info.defInstr)) {
+            // TODO: this is a fast dirty solution. think of a better way to handle call case
+            skipped_instructions.insert(instr);
+            return true;
+        }
         if (skipped_instructions.find(def_info.defInstr) != skipped_instructions.end()) {
             skipped_instructions.insert(instr);
             return true;
