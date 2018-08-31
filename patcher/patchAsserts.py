@@ -6,7 +6,7 @@ import re
 from shutil import copyfile
 def match_placeholders(console_reads):
     address = r'.*? \#\d+ [ ]+ (0(?:[a-z][a-z]*[0-9]+[a-z0-9]*)) .*? in [ ]+ ((?:[a-z][a-z0-9_]*)) .*?\n'
-    computed = r'\$\d+ .*? (\d+) .*?\n'
+    computed = r'\$\d+ .*? (-?\d+) .*?\n'
     placeholder = r'\$\d+ .*? (\d+) .*?\n'
 
     rg = re.compile(address+computed+placeholder,re.IGNORECASE|re.MULTILINE|re.VERBOSE|re.DOTALL)
@@ -20,7 +20,7 @@ def patch_binary(orig_name, new_name,debug, args, script):
     #result = subprocess.check_output(["gdb", orig_name, "-x", "/home/anahitik/SIP/sip-oblivious-hashing/assertions/gdb_script.txt"]).decode("utf-8")
     #cmd = ["gdb", orig_name, "-x", "/home/sip/sip-oblivious-hashing/assertions/gdb_script.txt"]
     cmd = ["gdb", orig_name, "-x", script]
-    if args !='':
+    if args !='' and args.strip()!='':
         #set_args = "\'set args"
         #set_args += args
         #set_args += "\'"
@@ -36,6 +36,7 @@ def patch_binary(orig_name, new_name,debug, args, script):
             cmd.extend(args_splitted)
     print cmd
     result = subprocess.check_output(cmd).decode("utf-8")
+    #print result
     shrtnd_result = ""
     for line in result.splitlines():
         if line.startswith('#') or line.startswith('$'):
@@ -48,6 +49,7 @@ def patch_binary(orig_name, new_name,debug, args, script):
         function = info[1]
         computed = int(info[2])
         placeholder = info[3]
+        print ("Computed " + info[3] + " " + info[2])
         fld_instr = int(address, 16) - 20
         expected_hashes[placeholder] = (computed, fld_instr, function)
     #exit(1)
