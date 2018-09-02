@@ -41,6 +41,7 @@ private:
   using InstructionSet = std::unordered_set<llvm::Instruction*>;
   using ValueSet = std::unordered_set<llvm::Value*>;
   using SkipFunctionsPred = std::function<bool (llvm::Instruction* instr)>;
+  using TraverseBlockPred = std::function<bool (llvm::BasicBlock* block)>;
 
 public:
     struct short_range_path_oh
@@ -89,11 +90,13 @@ private:
                                                                          llvm::BasicBlock* initialization_block);
   short_range_path_oh& determine_path_processing_settings(llvm::Function* F,
                                                           FunctionOHPaths::OHPath& path);
+  void update_statistics_with_non_dg_function(llvm::Function* F);
   void update_statistics(const FunctionOHPaths::OHPath& path,
                          llvm::Loop* path_loop,
                          const bool is_data_dep_loop,
                          const bool is_arg_reachable_loop,
-                         const bool is_glob_reachable_loop);
+                         const bool is_glob_reachable_loop,
+                         const TraverseBlockPred& traverse_block);
   InstructionSet collect_loop_invariants(llvm::Function* F,
                                          llvm::Loop* loop,
                                          const FunctionOHPaths::OHPath& path);

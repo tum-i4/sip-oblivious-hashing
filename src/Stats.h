@@ -1,6 +1,8 @@
 #include "json.hpp"
 #include <unordered_set>
 
+#include "input-dependency/InputDependencyAnalysisPass.h"
+
 namespace llvm {
 class BasicBlock;
 class Instruction;
@@ -64,6 +66,8 @@ private:
     InstructionSet m_unprotectedInstructions;
     InstructionSet m_unprotectedLoopVariantInstructions;
     InstructionSet m_scProtectedGuardInstructions;
+    InstructionSet m_unprotectedInstructionsWithNoDg;
+    InstructionSet m_shortRangeProtectedDataDepInstructions;
 
     using FunctionSet = std::unordered_set<llvm::Function*>;
     FunctionSet m_functionsWithNoDG;
@@ -91,12 +95,14 @@ public:
 
     void addOhProtectedInstruction(llvm::Instruction* I);
     void addShortRangeProtectedInstruction(llvm::Instruction* I);
+    void addShortRangeProtectedDataDepInstruction(llvm::Instruction* I);
     void addDataDependentInstruction(llvm::Instruction* I);
     void addNonHashableInstruction(llvm::Instruction* I);
     void addUnprotectedArgumentReachableInstruction(llvm::Instruction* I);
     void addUnprotectedGlobalReachableInstruction(llvm::Instruction* I);
     void addUnprotectedInstruction(llvm::Instruction* I);
     void addUnprotectedLoopVariantInstruction(llvm::Instruction* I);
+    void addUnprotectedInstructionWithNoDG(llvm::Instruction* I);
 
     void addSCProtectedGuardInstr(llvm::Instruction* I, int checkeeSize, int protectedArguments);
     void addSCShortRangeProtectedProtectedGuardInstr(llvm::Instruction* I, int checkeeSize, int protectedArguments);
@@ -135,6 +141,8 @@ public:
     void addNumberOfSensitivePaths(int);
     void addNumberOfProtectedPaths(int);
 
+    using InputDependencyAnalysisType = input_dependency::InputDependencyAnalysisPass::InputDependencyAnalysisType;
+    bool verify(InputDependencyAnalysisType input_dependency_info);
     void dumpJson(std::string fileName);
 };
 
