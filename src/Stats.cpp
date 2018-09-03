@@ -14,14 +14,14 @@ bool verifyInstructions(oh::OHStats::InputDependencyAnalysisType input_dependenc
 {
     for (auto& B : blocks) {
         auto F_input_dependency_info = input_dependency_info->getAnalysisInfo(B->getParent());
-        llvm::dbgs() << "Verify instructions in " << B->getName() << "\n";
+        llvm::dbgs() << "Verify instructions in " << B->getParent()->getName() << " " << B->getName() << "\n";
         for (auto& I : *B) {
             assert(F_input_dependency_info->isInputDependent(&I)
                     || F_input_dependency_info->isInputIndependent(&I));
-            assert(!F_input_dependency_info->isDataDependent(&I));
             //if (F_input_dependency_info->isDataDependent(&I)) {
-            //    llvm::dbgs() << "Here: " << I << "\n";
+            //    llvm::dbgs() << I << "\n";
             //}
+            assert(!F_input_dependency_info->isDataDependent(&I));
         }
     }
 }
@@ -31,12 +31,12 @@ bool verifyInstructions(oh::OHStats::InputDependencyAnalysisType input_dependenc
     llvm::dbgs() << "Verify instructions\n";
     for (auto& I : instructions) {
         auto F_input_dependency_info = input_dependency_info->getAnalysisInfo(I->getParent()->getParent());
-        assert(!F_input_dependency_info->isDataDependent(I));
+        //assert(!F_input_dependency_info->isDataDependent(I));
         assert(F_input_dependency_info->isInputDependent(I)
                 || F_input_dependency_info->isInputIndependent(I));
-        //if (F_input_dependency_info->isDataDependent(I)) {
-        //    llvm::dbgs() << "Here: " << *I << "\n";
-        //}
+        if (F_input_dependency_info->isDataDependent(I)) {
+            llvm::dbgs() << "Here: " << *I << "\n";
+        }
     }
 }
 
@@ -520,12 +520,15 @@ void OHStats::addUnprotectedLoopInstructions(const BasicBlocksSet& blocks)
     for (auto& B : blocks) {
         for (auto& I : *B) {
             if (m_dataDependentInstructions.find(&I) == m_dataDependentInstructions.end()
+                    && m_ohProtectedInstructions.find(&I) == m_ohProtectedInstructions.end()
+                    && m_shortRangeProtectedInstructions.find(&I) == m_shortRangeProtectedInstructions.end()
                     && m_nonHashableInstructions.find(&I) == m_nonHashableInstructions.end()
                     && m_unprotectedArgumentReachableInstructions.find(&I) == m_unprotectedArgumentReachableInstructions.end()
                     && m_unprotectedGlobalReachableInstructions.find(&I) == m_unprotectedGlobalReachableInstructions.end()
                     && m_unprotectedInstructions.find(&I) == m_unprotectedInstructions.end()
                     && m_unprotectedLoopVariantInstructions.find(&I) == m_unprotectedLoopVariantInstructions.end()
                     && m_unprotectedInstructionsWithNoDg.find(&I) == m_unprotectedInstructionsWithNoDg.end()) {
+                //llvm::dbgs() << I.getParent()->getParent()->getName() << I.getParent()->getName() << " " << I << "\n";
                 numberOfUnprotectedLoopInstructions += 1;
             }
         }
@@ -543,9 +546,9 @@ bool OHStats::verify(InputDependencyAnalysisType input_dependency_info)
     verifyInstructions(input_dependency_info, m_unprotectedLoopVariantInstructions);
     verifyInstructions(input_dependency_info, m_unprotectedInstructionsWithNoDg);
 
-    verifyInstructions(input_dependency_info, m_unprotectedArgumentReachableLoopBlocks);
-    verifyInstructions(input_dependency_info, m_unprotectedGlobalReachableLoopBlocks);
-    verifyInstructions(input_dependency_info, m_unprotectedDataDependentLoopBlocks);
+    //verifyInstructions(input_dependency_info, m_unprotectedArgumentReachableLoopBlocks);
+    //verifyInstructions(input_dependency_info, m_unprotectedGlobalReachableLoopBlocks);
+    //verifyInstructions(input_dependency_info, m_unprotectedDataDependentLoopBlocks);
 }
 
 void OHStats::dumpJson(std::string filePath){
@@ -619,7 +622,7 @@ void OHStats::dumpJson(std::string filePath){
 
     //dumpBlocks();
     //dumpInstructions();
-    check_statistics_validity();
+    //check_statistics_validity();
 }
 
 void OHStats::dumpBlocks()
@@ -636,17 +639,18 @@ void OHStats::dumpInstructions()
 {
     dump("Oh protected instructions", m_ohProtectedInstructions);
     dump("Short range protected instructions", m_shortRangeProtectedInstructions);
-    dump("data dependent instructions", m_dataDependentInstructions);
+    dump("Short range protected data dep instructions", m_shortRangeProtectedDataDepInstructions);
+    //dump("data dependent instructions", m_dataDependentInstructions);
     dump("non hashable instructions", m_nonHashableInstructions);
     dump("unprotected argument reachable instructions", m_unprotectedArgumentReachableInstructions);
     dump("unprotected global reachable instructions", m_unprotectedGlobalReachableInstructions);
     dump("unprotected instructions", m_unprotectedInstructions);
     dump("unprotected loop variant instructions", m_unprotectedLoopVariantInstructions);
-    dump_instructions("Unprotected argument reachable loop blocks instructions", m_unprotectedArgumentReachableLoopBlocks);
-    dump_instructions("Unprotected global reachable loop blocks instructions", m_unprotectedGlobalReachableLoopBlocks);
-    dump_instructions("Unprotected data dep loop blocks instructions", m_unprotectedDataDependentLoopBlocks);
-    dump_instructions(m_filteredFunctions);
-    dump_instructions(m_functionsWithNoDG);
+    //dump_instructions("Unprotected argument reachable loop blocks instructions", m_unprotectedArgumentReachableLoopBlocks);
+    //dump_instructions("Unprotected global reachable loop blocks instructions", m_unprotectedGlobalReachableLoopBlocks);
+    //dump_instructions("Unprotected data dep loop blocks instructions", m_unprotectedDataDependentLoopBlocks);
+    //dump_instructions(m_filteredFunctions);
+    //dump_instructions(m_functionsWithNoDG);
 }
 
 void OHStats::check_statistics_validity()

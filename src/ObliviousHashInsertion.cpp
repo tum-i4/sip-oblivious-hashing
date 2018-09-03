@@ -194,6 +194,7 @@ bool skip_short_range_instruction(llvm::Instruction* instr,
         stats.addUnprotectedGlobalReachableInstruction(instr);
         return true;
     } else if (skipped_instructions.find(instr) != skipped_instructions.end()) {
+        stats.addUnprotectedInstruction(instr);
         return true;
     }
     if (shouldSkipInstruction(instr, skipped_instructions)) {
@@ -1735,7 +1736,7 @@ ObliviousHashInsertionPass::determine_path_processing_settings(llvm::Function* F
                 const auto& traverse_block = [&F_input_dependency_info] (llvm::BasicBlock* block)
                 {
                     return F_input_dependency_info->isInputDepFunction() ||
-                    F_input_dependency_info->isInputDependentBlock(block);
+                        F_input_dependency_info->isInputDependentBlock(block);
                 };
 
                 update_statistics(path, loop, is_data_dep_loop,
@@ -1802,6 +1803,23 @@ void ObliviousHashInsertionPass::update_statistics_with_non_dg_function(llvm::Fu
         }
     }
 }
+void ObliviousHashInsertionPass::update_statistics_with_data_dep_instructions(llvm::Function* F,
+                                                                              const FunctionOHPaths::OHPath& path)
+{
+    auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
+    for (auto& B : path) {
+        llvm::dbgs() << B->getName() << "\n";
+        for (auto& I : *B) {
+            if (!F_input_dependency_info->isInputDependent(&I)
+                    && !F_input_dependency_info->isInputIndependent(&I)) {
+                continue;
+            }
+            if (F_input_dependency_info->isDataDependent(&I)) {
+                stats.addDataDependentInstruction(&I);
+            }
+        }
+    }
+}
 
 bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
                                               FunctionOHPaths::OHPath& path,
@@ -1814,10 +1832,12 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
     if (path.empty()) {
         return false;
     }
+    FunctionOHPaths::OHPath orig_path = path;
     auto& oh_path = determine_path_processing_settings(F, path);
     llvm::dbgs() << "After path modifications process path";
     if (oh_path.path.empty()) {
         llvm::dbgs() << " is empty\n";
+        update_statistics_with_data_dep_instructions(F, orig_path);
         m_function_oh_paths[F].pop_back();
         return false;
     }
@@ -1839,12 +1859,14 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
         llvm::dbgs() << "Hash path invariants only\n";
         if (!oh_path.loop) {
             llvm::dbgs() << "No loop information for path for which only invariants should be processed\n";
+            update_statistics_with_data_dep_instructions(F, oh_path.path);
             m_function_oh_paths[F].pop_back();
             return false;
         }
         invariants = collect_loop_invariants(F, oh_path.loop, oh_path.path);
         if (invariants.empty()) {
             llvm::dbgs() << "No invariant in the path. Skip path\n";
+            update_statistics_with_data_dep_instructions(F, oh_path.path);
             m_function_oh_paths[F].pop_back();
             return false;
         }
@@ -2139,6 +2161,11 @@ bool ObliviousHashInsertionPass::can_instrument_instruction(llvm::Function* F,
     if (skipInstruction(*I) || skipInstructionPred(I)) {
         return false;
     }
+    if (llvm::dyn_cast<llvm::PHINode>(I)) {
+        dataDepInstrs.insert(I);
+        stats.addUnprotectedInstruction(I);
+        return false;
+    }
     return true;
 }
 
@@ -2163,6 +2190,8 @@ bool ObliviousHashInsertionPass::process_path_block(llvm::Function* F, llvm::Bas
                 if (instrumentBranchInst(llvm::dyn_cast<llvm::BranchInst>(&I), hash_value, true)) {
                     local_hash_updated = true;
                     skipped_instructions.insert(B->getInstList().getPrevNode(I));
+                } else {
+                    stats.addNonHashableInstruction(&I);
                 }
                 modified |= local_hash_updated;
             } else {
@@ -2575,7 +2604,20 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
         AAR.emplace(llvm::createLegacyPMAAResults(*this, *F, *BAR));
         return &*AAR;
     };
-
+    //for (auto& F : M) {
+    //    auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(&F);
+    //    for (auto& B : F) {
+    //        for (auto& I : B) {
+    //            if (!F_input_dependency_info->isInputDependent(&I)
+    //                    && !F_input_dependency_info->isInputIndependent(&I)) {
+    //                continue;
+    //            }
+    //            if (!F_input_dependency_info->isDataDependent(&I)) {
+    //                llvm::dbgs() << "       " << F.getName() << B.getName() << " " << I << "\n";
+    //            }
+    //        }
+    //    }
+    //}
     int countProcessedFuncs = 0;
     m_hashUpdated = false;
     for (auto &F : M) {
@@ -2604,21 +2646,9 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
     if (!DumpOHStat.empty()) {
         dbgs() << "OH stats is requested, dumping stat file...\n";
         stats.dumpJson(DumpOHStat);
+        //stats.verify(m_input_dependency_info);
     }
-    //for (auto& F : M) {
-    //    auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(&F);
-    //    for (auto& B : F) {
-    //        for (auto& I : B) {
-    //            if (!F_input_dependency_info->isInputDependent(&I)
-    //                    && !F_input_dependency_info->isInputIndependent(&I)) {
-    //                continue;
-    //            }
-    //            if (!F_input_dependency_info->isDataDependent(&I)) {
-    //                llvm::dbgs() << "       " << F.getName() << B.getName() << " " << I << "\n";
-    //            }
-    //        }
-    //    }
-    //}
+
     // Make sure OH only processed filter function list
     if (countProcessedFuncs != m_function_filter_info->get_functions().size()
         && m_function_filter_info->get_functions().size() > 0) {

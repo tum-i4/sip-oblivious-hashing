@@ -90,6 +90,8 @@ private:
                                                                          llvm::BasicBlock* initialization_block);
   short_range_path_oh& determine_path_processing_settings(llvm::Function* F,
                                                           FunctionOHPaths::OHPath& path);
+  void update_statistics_with_data_dep_instructions(llvm::Function* F,
+                                                    const FunctionOHPaths::OHPath& path);
   void update_statistics_with_non_dg_function(llvm::Function* F);
   void update_statistics(const FunctionOHPaths::OHPath& path,
                          llvm::Loop* path_loop,
