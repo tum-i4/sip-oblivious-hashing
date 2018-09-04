@@ -73,7 +73,7 @@ private:
   void setup_functions();
   void setup_hash_values();
   void setup_memory_defining_blocks();
-  bool skip_function(llvm::Function& F);
+  bool skip_function(llvm::Function& F, bool update_stats = true);
   bool process_function(llvm::Function* F);
   bool process_function_with_short_range_oh_enabled(llvm::Function* F);
   bool process_function_with_global_oh(llvm::Function* F);

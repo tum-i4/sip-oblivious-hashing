@@ -1431,7 +1431,7 @@ void ObliviousHashInsertionPass::setup_hash_values()
 void ObliviousHashInsertionPass::setup_memory_defining_blocks()
 {
     for (auto& F : *m_M) {
-        if (skip_function(F)) {
+        if (skip_function(F, false)) {
             continue;
         }
         llvm::MemorySSA& ssa = getAnalysis<llvm::MemorySSAWrapperPass>(F).getMSSA();
@@ -1441,7 +1441,7 @@ void ObliviousHashInsertionPass::setup_memory_defining_blocks()
     }
 }
 
-bool ObliviousHashInsertionPass::skip_function(llvm::Function& F)
+bool ObliviousHashInsertionPass::skip_function(llvm::Function& F, bool update_stats)
 {
     if (F.isDeclaration() || F.isIntrinsic()) {
         return true;
@@ -1451,21 +1451,27 @@ bool ObliviousHashInsertionPass::skip_function(llvm::Function& F)
     }
     if (m_function_filter_info->get_functions().size() != 0 && !m_function_filter_info->is_function(&F)) {
         llvm::dbgs() << " Skipping function per FilterFunctionPass:" << F.getName() << "\n";
-        stats.addFilteredFunction(&F);
+        if (update_stats) {
+            stats.addFilteredFunction(&F);
+        }
         return true;
     }
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(&F);
     if (!F_input_dependency_info) {
         llvm::dbgs() << "Skipping function. No input dep info " << F.getName() << "\n";
-        stats.addFunctionWithNoInputDep(&F);
+        if (update_stats) {
+            stats.addFunctionWithNoInputDep(&F);
+        }
         return true;
     }
     if (shortRangeOH) {
         dg::LLVMDependenceGraph* F_dg = m_slicer->getDG(&F);
         if (!F_dg) {
-            stats.addFunctionWithNoDg(&F);
             llvm::dbgs() << "Skip. No dependence graph for function " << F.getName() << "\n";
-            update_statistics_with_non_dg_function(&F);
+            if (update_stats) {
+                stats.addFunctionWithNoDg(&F);
+                update_statistics_with_non_dg_function(&F);
+            }
             return true;
         }
     }
@@ -1788,6 +1794,8 @@ void ObliviousHashInsertionPass::update_statistics(const FunctionOHPaths::OHPath
 
 void ObliviousHashInsertionPass::update_statistics_with_non_dg_function(llvm::Function* F)
 {
+    stats.addSensitiveInstructions(F);
+    stats.addNumberOfSensitiveBlocks(F->getBasicBlockList().size());
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
     for (auto& B : *F) {
         for (auto& I : B) {
