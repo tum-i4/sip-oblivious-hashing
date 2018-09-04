@@ -366,7 +366,7 @@ public:
     }
 
 private:
-    llvm::Function* createPathFunction();
+    void createPathFunction();
     void clonePathBlocks(const FunctionOHPaths::OHPath& path);
     void clonePathInstructions();
     void createMissingInstructions();
@@ -474,15 +474,14 @@ void FunctionExtractionHelper::extractFunction()
     //m_pathF->dump();
 }
 
-llvm::Function* FunctionExtractionHelper::createPathFunction()
+void FunctionExtractionHelper::createPathFunction()
 {
     llvm::Module* M = m_F->getParent();
     llvm::FunctionType *function_type = llvm::FunctionType::get(llvm::Type::getVoidTy(M->getContext()),
                                                                 llvm::ArrayRef<llvm::Type*>(), false);
-    llvm::Constant* path_F = M->getOrInsertFunction(
+    m_pathF = llvm::dyn_cast<llvm::Function>(M->getOrInsertFunction(
                                                     getPathFunctionName(m_path.path_assert->getName()),
-                                                    function_type);
-    m_pathF = llvm::dyn_cast<llvm::Function>(path_F);
+                                                    function_type));
 }
 
 void FunctionExtractionHelper::clonePathBlocks(const FunctionOHPaths::OHPath& path)
