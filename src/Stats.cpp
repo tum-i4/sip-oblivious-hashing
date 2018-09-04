@@ -598,6 +598,7 @@ void OHStats::dumpJson(std::string filePath){
     //j["numberOfInstructionsInFunctionsWithNoInputDep"] = getNumberOfInstructionsInFunctions(m_functionsWithNoInputDep);
     j["numberOfUnprotectedInstructionsWithNoDG"]= m_unprotectedInstructionsWithNoDg.size();
     j["numberOfBlocksInFunctionsWithNoDG"] = getNumberOfBlocksInFunctions(m_functionsWithNoDG);
+    j["numberOfInstructionsInFunctionsWithNoDG"] = getNumberOfInstructionsInFunctions(m_functionsWithNoDG);
 
     int numberOfProcessedInstrs = m_unprotectedInstructionsWithNoDg.size()
         + getNumberOfInstructionsInFunctions(m_filteredFunctions)
