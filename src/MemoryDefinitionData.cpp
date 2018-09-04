@@ -1,4 +1,4 @@
-#include "MemoryDefinitionData.h"
+#include "oblivious-hashing/MemoryDefinitionData.h"
 
 #include "llvm/Analysis/MemorySSA.h"
 #include "llvm/IR/BasicBlock.h"
@@ -137,7 +137,7 @@ public:
             continue;
         }
         llvm::MemorySSA& ssa = getAnalysis<llvm::MemorySSAWrapperPass>(F).getMSSA();
-        ssa.dump();
+        ssa.print(llvm::dbgs());
         MemoryDefinitionData ssa_data(F, ssa);
         ssa_data.collectDefiningData();
         dump(F, ssa_data);
