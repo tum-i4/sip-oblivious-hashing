@@ -106,28 +106,61 @@ ReachableFunctions::collect_indirectly_called_functions(llvm::Function* F,
     FunctionSet called_functions;
     for (auto& B : *F) {
         for (auto& I : B) {
-            llvm::FunctionType* calledType = nullptr;
+            FunctionSet functions;
+            FunctionSet callback_functions;
             if (auto* callInst = llvm::dyn_cast<llvm::CallInst>(&I)) {
-                if (!callInst->getCalledFunction()) {
-                    calledType = callInst->getFunctionType();
-                }
+                functions = get_indirect_called_functions(callInst, functionTypes);
+                callback_functions = get_functions_from_arguments(callInst, functionTypes);
             } else if (auto* invokeInst = llvm::dyn_cast<llvm::InvokeInst>(&I)) {
-                if (!invokeInst->getCalledFunction()) {
-                    calledType = callInst->getFunctionType();
-                }
+                functions = get_indirect_called_functions(invokeInst, functionTypes);
+                callback_functions = get_functions_from_arguments(invokeInst, functionTypes);
             }
-            if (calledType) {
-                auto pos = functionTypes.find(calledType);
-                if (pos != functionTypes.end()) {
-                    called_functions.insert(pos->second.begin(), pos->second.end());
-                }
+            if (!functions.empty()) {
+                called_functions.insert(functions.begin(), functions.end());
             }
+            if (!callback_functions.empty()) {
+                called_functions.insert(callback_functions.begin(), callback_functions.end());
+            }
+
         }
     }
     return called_functions;
 }
 
- 
+template <typename CallType>
+ReachableFunctions::FunctionSet
+ReachableFunctions::get_indirect_called_functions(CallType* callInst, const FunctionTypeMap& functionTypes)
+{
+    if (callInst->getCalledFunction()) {
+        return FunctionSet();
+    }
+    auto* calledType = callInst->getFunctionType();
+    auto pos = functionTypes.find(calledType);
+    if (pos == functionTypes.end()) {
+        return FunctionSet();
+    }
+    return pos->second;
+}
+
+template <typename CallType>
+ReachableFunctions::FunctionSet
+ReachableFunctions::get_functions_from_arguments(CallType* callInst, const FunctionTypeMap& functionTypes)
+{
+    FunctionSet callbacks;
+    for (unsigned i = 0; i < callInst->getNumArgOperands(); ++i) {
+        auto* arg = callInst->getArgOperand(i);
+        if (auto* argF = llvm::dyn_cast<llvm::Function>(arg)) {
+            callbacks.insert(argF);
+        } else if (auto* fType = llvm::dyn_cast<llvm::FunctionType>(arg->getType())) {
+            auto pos = functionTypes.find(fType);
+            if (pos != functionTypes.end()) {
+                callbacks.insert(pos->second.begin(), pos->second.end());
+            }
+        }
+    }
+    return callbacks;
+}
+
 char ReachableFunctionsPass::ID = 0;
 
 bool ReachableFunctionsPass::runOnModule(llvm::Module &M)

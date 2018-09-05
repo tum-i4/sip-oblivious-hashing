@@ -42,6 +42,13 @@ private:
     FunctionSet collect_indirectly_called_functions(llvm::Function* F,
                                                     const FunctionTypeMap& functionTypes);
        
+    template <typename CallType>
+    FunctionSet get_indirect_called_functions(CallType* callInst,
+                                              const FunctionTypeMap& functionTypes);
+    template <typename CallType>
+    FunctionSet get_functions_from_arguments(CallType* callInst,
+                                             const FunctionTypeMap& functionTypes);
+
 private:
     llvm::Module* m_module;
     llvm::CallGraph* m_callGraph;
