@@ -78,6 +78,7 @@ private:
     void addUnprotectedLoopInstructions();
     void addUnprotectedLoopInstructions(const BasicBlocksSet& blocks);
     void dumpBlocks();
+    void dumpNonHashableInstructions();
     void dumpInstructions();
     void check_statistics_validity();
     void addUnprotectedLoopBlock(BasicBlocksSet& unprotectedLoopBlocks, llvm::BasicBlock* B);

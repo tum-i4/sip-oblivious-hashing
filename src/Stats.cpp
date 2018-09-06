@@ -621,9 +621,22 @@ void OHStats::dumpJson(std::string filePath){
 	std::ofstream o(filePath);
 	o << std::setw(4) << j << std::endl;
 
+    //dumpNonHashableInstructions();
     //dumpBlocks();
     //dumpInstructions();
     //check_statistics_validity();
+}
+
+void OHStats::dumpNonHashableInstructions()
+{
+    std::unordered_map<std::string, unsigned> instructions_types;
+    for (auto& I : m_nonHashableInstructions) {
+        llvm::dbgs() << *I << "\n";
+        instructions_types[I->getOpcodeName()]++;
+    }
+    for (auto& instr_type : instructions_types) {
+        llvm::dbgs() << instr_type.first << "   " << instr_type.second << "\n";
+    }
 }
 
 void OHStats::dumpBlocks()

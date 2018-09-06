@@ -1139,9 +1139,7 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I,
         }
     } else if (llvm::BinaryOperator::classof(&I)) {
         auto *bin = llvm::dyn_cast<llvm::BinaryOperator>(&I);
-        if (bin->getOpcode() == llvm::Instruction::Add) {
-            hashInserted = insertHash(I, bin, hash_to_update, false);
-        }
+        hashInserted = insertHash(I, bin, hash_to_update, false);
     } else if (auto *call = llvm::dyn_cast<llvm::CallInst>(&I)) {
         hashInserted = instrumentCallInst(call, protectedArguments, hash_to_update);
         isCallGuard = isInstAGuard(I);
@@ -1151,10 +1149,19 @@ bool ObliviousHashInsertionPass::instrumentInst(llvm::Instruction &I,
     } else if (auto* getElemPtr = llvm::dyn_cast<llvm::GetElementPtrInst>(&I)) {
         hashInserted = instrumentGetElementPtrInst(getElemPtr, hash_to_update);
     } else if (!llvm::dyn_cast<llvm::PHINode>(&I)) {
-        for (auto op = I.op_begin(); op != I.op_end(); ++op) {
-            auto* val = llvm::dyn_cast<llvm::Value>(&*op);
-            if (val && !is_value_short_range_hashed(val) && !is_value_global_hashed(val)) {
-                hashInserted |= insertHash(I, val, hash_to_update, true);
+        hashInserted = insertHash(I, &I, hash_to_update, false);
+        if (!hashInserted) {
+            for (auto op = I.op_begin(); op != I.op_end(); ++op) {
+                auto* val = llvm::dyn_cast<llvm::Value>(&*op);
+                if (!val) {
+                    continue;
+                }
+                if (is_value_short_range_hashed(val) || is_value_global_hashed(val)) {
+                    is_local_hash ? m_shortRangeHashedValues.insert(&I) : m_globalHashedValues.insert(&I);
+                    is_local_hash ? stats.addShortRangeProtectedInstruction(&I) : stats.addOhProtectedInstruction(&I);
+                } else {
+                    hashInserted |= insertHash(I, val, hash_to_update, true);
+                }
             }
         }
     }
@@ -1260,13 +1267,14 @@ bool ObliviousHashInsertionPass::instrumentCallInst(CallInstTy* call,
         }
         hashInserted = hashInserted || argHashed;
     }
-    // TODO: comment if as one fix for memcached problem
-    if (!isHashableFunction(called_function)) {
-       m_function_skipped_instructions[call->getParent()->getParent()].insert(call);
-    }
+
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(call->getParent()->getParent());
     if (!F_input_dependency_info->isDataDependent(call)) {
         m_function_skipped_instructions[call->getParent()->getParent()].insert(call);
+    } else if (!isHashableFunction(called_function)) {
+       m_function_skipped_instructions[call->getParent()->getParent()].insert(call);
+    } else {
+        hashInserted |= insertHash(*call, call, hash_value, false);
     }
     return hashInserted;
 }
