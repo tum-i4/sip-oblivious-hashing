@@ -376,6 +376,11 @@ void OHStats::addFunctionWithNoInputDep(llvm::Function* F)
     m_functionsWithNoInputDep.insert(F);
 }
 
+void OHStats::addMainUnreachableFunction(llvm::Function* F)
+{
+    m_mainUnreachableFunctions.insert(F);
+}
+
 void OHStats::eraseFromUnprotectedBlocks(llvm::BasicBlock* B)
 {
     removeFromUnprotectedLoopBlocks(B);
@@ -584,6 +589,7 @@ void OHStats::dumpJson(std::string filePath){
 
     j["numberOfSensitiveFunctions"] = numberOfSensitiveFunctions;
     j["numberOfProtectedFunctions"] = numberOfProtectedFunctions;
+    j["numberOfMainUnreachableFunctions"] = m_mainUnreachableFunctions.size();
     //j["numberOfSensitivePaths"] = numberOfSensitivePaths;
     //j["numberOfProtectedPaths"] = numberOfProtectedPaths;
     j["numberOfNonHashableInstructions"] = m_nonHashableInstructions.size();

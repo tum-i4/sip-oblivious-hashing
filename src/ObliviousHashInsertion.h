@@ -186,6 +186,7 @@ private:
   llvm::AAResults* m_AAR;
   using InputDependencyAnalysisType = input_dependency::InputDependencyAnalysisPass::InputDependencyAnalysisType;
   InputDependencyAnalysisType m_input_dependency_info;
+  std::unordered_set<llvm::Function*> m_mainReachableFunctions;
   FunctionInformation* m_function_mark_info;
   FunctionInformation* m_function_filter_info;
   const FunctionCallSiteData* m_function_callsite_data;

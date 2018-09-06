@@ -19,6 +19,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/IR/Metadata.h"
+#include "llvm/Analysis/CallGraph.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
@@ -40,6 +41,7 @@
 #include "../../self-checksumming/src/FunctionMarker.h"
 
 #include "input-dependency/FunctionInputDependencyResultInterface.h"
+#include "input-dependency/ReachableFunctions.h"
 
 using namespace llvm;
 namespace oh {
@@ -990,12 +992,21 @@ static cl::opt<bool>
 static cl::opt<std::string> CallOrderFile ("call-order", cl::Hidden,
                                            cl::desc("Call order for extracted functions"));
 
+static cl::opt<bool>
+    excludeMainUnreachables("exclude-main-unreachables", cl::Hidden,
+               cl::desc("Don't apply protection on function unreachable from main"));
+
+static cl::opt<bool>
+    mainReachablesCached("main-reach-cached", cl::Hidden,
+               cl::desc("Main reachable functions are cached"));
+
 void ObliviousHashInsertionPass::getAnalysisUsage(llvm::AnalysisUsage &AU) const
 {
     AU.setPreservesAll();
     AU.addRequired<llvm::AssumptionCacheTracker>(); // otherwise run-time error
     AU.addRequired<llvm::MemorySSAWrapperPass>();
     llvm::getAAResultsAnalysisUsage(AU);
+    AU.addRequired<llvm::CallGraphWrapperPass>();
     AU.addRequired<input_dependency::InputDependencyAnalysisPass>();
     AU.addRequired<llvm::LoopInfoWrapperPass>();
     AU.addRequired<llvm::DominatorTreeWrapperPass>();
@@ -1402,6 +1413,17 @@ void ObliviousHashInsertionPass::setup_used_analysis_results()
     llvm::dbgs() << "Recieved filter functions "
                  << m_function_filter_info->get_functions().size() << "\n";
     m_function_callsite_data = &getAnalysis<FunctionCallSiteInformationPass>().getAnalysisResult();
+    if (excludeMainUnreachables && !mainReachablesCached) {
+        llvm::Function* mainF = m_M->getFunction("main");
+        if (!mainF) {
+            llvm::dbgs() << "No function main. Can not exclude main unreachable functions\n";
+            return;
+        }
+        llvm::CallGraph* CG = &getAnalysis<llvm::CallGraphWrapperPass>().getCallGraph();
+        input_dependency::ReachableFunctions reachableFs(m_M, CG);
+        reachableFs.setInputDependencyAnalysisResult(m_input_dependency_info.get());
+        m_mainReachableFunctions = reachableFs.getReachableFunctions(mainF);
+    }
 }
 
 void ObliviousHashInsertionPass::setup_functions()
@@ -1455,6 +1477,25 @@ bool ObliviousHashInsertionPass::skip_function(llvm::Function& F, bool update_st
     }
     if (F.getMetadata("extracted")) {
         return true;
+    }
+    if (excludeMainUnreachables) {
+        if (mainReachablesCached) {
+            if (m_M->getModuleFlag("main_reachables_cached")) {
+                if (!F.getMetadata("main_reachable")) {
+                    llvm::dbgs() << "Skipping. Function not reachable from main " << F.getName() << "\n";
+                    stats.addMainUnreachableFunction(&F);
+                    return true;
+                }
+            } else {
+                llvm::dbgs() << "Main reachable functions are not cached. Will not exclude main unreachable functions\n";
+            }
+        } else {
+            if (m_mainReachableFunctions.empty() || (m_mainReachableFunctions.find(&F) == m_mainReachableFunctions.end())) {
+                llvm::dbgs() << "Skipping. Function not reachable from main " << F.getName() << "\n";
+                stats.addMainUnreachableFunction(&F);
+                return true;
+            }
+        }
     }
     if (m_function_filter_info->get_functions().size() != 0 && !m_function_filter_info->is_function(&F)) {
         llvm::dbgs() << " Skipping function per FilterFunctionPass:" << F.getName() << "\n";

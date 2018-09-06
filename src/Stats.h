@@ -73,6 +73,7 @@ private:
     FunctionSet m_functionsWithNoDG;
     FunctionSet m_filteredFunctions;
     FunctionSet m_functionsWithNoInputDep;
+    FunctionSet m_mainUnreachableFunctions;
 
 private:
     void addUnprotectedLoopInstructions();
@@ -112,6 +113,7 @@ public:
     void addFunctionWithNoDg(llvm::Function* F);
     void addFilteredFunction(llvm::Function* F);
     void addFunctionWithNoInputDep(llvm::Function* F);
+    void addMainUnreachableFunction(llvm::Function* F);
 
     void eraseFromUnprotectedBlocks(llvm::BasicBlock* B);
 
