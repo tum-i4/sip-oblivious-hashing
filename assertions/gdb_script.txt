@@ -1,3 +1,5 @@
+set exec-wrapper env LD_PRELOAD="/home/anahitik/SIP/sip-oblivious-hashing/assertions/librtlib.so"
+set breakpoint pending on
 b response
 commands
 return

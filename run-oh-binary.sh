@@ -48,11 +48,17 @@ else
             exit    
 fi 
 
-llc-6.0 out.bc
-gcc -c -rdynamic out.s -o out.o
-gcc -g -rdynamic -c $OH_PATH/assertions/response.c -o response.o
-gcc -g -rdynamic out.o response.o -o out
+LIB_FILE=()
 
+llc out.bc
+g++ -std=c++0x -c -rdynamic out.s -o out.o
+
+g++ -fPIC -std=c++11 -g -rdynamic -c ${OH_PATH}/assertions/response.cpp -o ${OH_PATH}/assertions/oh_rtlib.o
+LIB_FILES+=( "${OH_PATH}/assertions/oh_rtlib.o" )
+
+g++ -std=c++11 -g -rdynamic -Wall -fPIC -shared -Wl,-soname,${OH_PATH}/assertions/libsrtlib.so -o "${OH_PATH}/assertions/librtlib.so" -lncurses -lm -lssl -lcrypto -pthread ${LIB_FILES[@]}
+
+g++ -std=c++11 -g -rdynamic out.o -o out -L${OH_PATH}/assertions/ -lrtlib -lncurses -lm -lssl -lcrypto -pthread
 
 # Linking with external libraries
 #llvm-link-3.9 out.bc $OH_PATH/assertions/response.bc -o out.bc
@@ -60,9 +66,11 @@ gcc -g -rdynamic out.o response.o -o out
 # intermediate precompute hashes
 #clang++-3.9 -g -lncurses -rdynamic -std=c++0x out.bc -o out
 
-#export LD_PRELOAD="/home/sip/self-checksumming/hook/build/libminm.so" 
+export LD_PRELOAD="/home/sip/self-checksumming/hook/build/libminm.so ${OH_PATH}/assertions/librtlib.so"
+echo "$LD_PRELOAD"
+#
+##Patch using GDB
 
-#Patch using GDB
-python $OH_PATH/patcher/patchAsserts.py -b out -n out_patched -s oh.stats 
+python $OH_PATH/patcher/patchAsserts.py -b out -n out_patched -s oh.stats -d False -p "/home/sip/sip-oblivious-hashing/assertions/gdb_script_for_do_assert.txt"
 echo 'Generated bianry is out_patched ...'
 chmod +x out_patched
