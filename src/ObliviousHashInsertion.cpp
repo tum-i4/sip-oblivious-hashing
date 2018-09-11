@@ -1231,7 +1231,7 @@ bool ObliviousHashInsertionPass::instrumentCallInst(CallInstTy* call,
     llvm::dbgs() << "Processing call instruction..\n";
     //call->dump();
     auto called_function = call->getCalledFunction();
-    if (called_function == nullptr || called_function->isIntrinsic() ||
+    if (called_function == nullptr /*|| called_function->isIntrinsic() */||
             called_function == hashFunc1 || called_function == hashFunc2) {
         return false;
     }
