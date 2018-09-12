@@ -115,9 +115,12 @@ private:
                           InstructionSet& skipped_instructions,
                           bool hash_branch_inst);
   bool process_block(llvm::Function* F, llvm::BasicBlock* B,
+                     llvm::Value* local_hash_value,
                      bool insert_assert,
                      const SkipFunctionsPred& skipInstructionPred,
-                     InstructionSet& skipped_instructions);
+                     bool& local_hash_updated,
+                     InstructionSet& skipped_instructions,
+                     bool hash_branches);
   bool isUsingGlobal(llvm::Value* value,
                      const std::unordered_set<llvm::Instruction*>& global_reachable_instr);
   bool isNullReachable(llvm::Function* F, llvm::Value* value);

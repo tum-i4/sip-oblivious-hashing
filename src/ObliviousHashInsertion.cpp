@@ -1571,9 +1571,10 @@ bool ObliviousHashInsertionPass::process_function_with_global_oh(llvm::Function*
         llvm::dbgs() << "Process " << B.getName() << "\n";
         bool can_insert_assertions = can_insert_assertion_at_deterministic_location(F, &B, LI);
         InstructionSet skipped_instructions;
-        modified |= process_block(F, &B, can_insert_assertions,
+        bool dummy_flag = false;
+        modified |= process_block(F, &B, nullptr, can_insert_assertions,
                                   [] (llvm::Instruction* instr) {return false;},
-                                  skipped_instructions);
+                                  dummy_flag, skipped_instructions, false);
     }
     return modified;
 }
@@ -2048,9 +2049,10 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
         if (!F_input_dependency_info->isInputDepFunction() && !F_input_dependency_info->isInputDependentBlock(B)) {
             bool can_insert_assertions = can_insert_assertion_at_deterministic_location(F, B, LI);
             if (m_processed_deterministic_blocks.insert(B).second) {
-                modified |= process_block(F, B, can_insert_assertions,
+                modified |= process_block(F, B, local_hash, can_insert_assertions,
                                           deterministic_skip_instruction_pred,
-                                          skipped_instructions);
+                                          local_hash_updated, skipped_instructions,
+                                          (oh_path.loop == nullptr) || oh_path.hash_invariants_only);
             }
         } else {
             insert_assertion = (B == oh_path.exit_block);
@@ -2064,7 +2066,7 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
     if (!modified) {
         llvm::dbgs() << "No oh has been applied in the path\n";
     }
-    if (!has_inputdep_block) {
+    if (!has_inputdep_block && !local_hash_updated) {
         local_store->eraseFromParent();
         local_hash->eraseFromParent();
         llvm::dbgs() << "No short range oh has been applied in the path\n";
@@ -2125,9 +2127,10 @@ bool ObliviousHashInsertionPass::process_deterministic_part_of_path(llvm::Functi
         if (!F_input_dependency_info->isInputDepFunction() && !F_input_dependency_info->isInputDependentBlock(B)) {
             bool can_insert_assertions = can_insert_assertion_at_deterministic_location(F, B, LI);
             if (m_processed_deterministic_blocks.insert(B).second) {
-                modified |= process_block(F, B, can_insert_assertions,
-                                          deterministic_skip_instruction_pred,
-                                          skipped_instructions);
+                bool dummy_flag = false;
+                modified |= process_block(F, B, nullptr, can_insert_assertions,
+                                          deterministic_skip_instruction_pred, dummy_flag,
+                                          skipped_instructions, false);
             }
         } 
     }
@@ -2266,14 +2269,28 @@ bool ObliviousHashInsertionPass::process_path_block(llvm::Function* F, llvm::Bas
 }
 
 bool ObliviousHashInsertionPass::process_block(llvm::Function* F, llvm::BasicBlock* B,
+                                               llvm::Value* local_hash_value,
                                                bool insert_assert,
                                                const SkipFunctionsPred& skipInstructionPred,
-                                               InstructionSet& skipped_instructions)
+                                               bool& local_hash_updated,
+                                               InstructionSet& skipped_instructions,
+                                               bool hash_branches)
 {
     bool modified = false;
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
     for (auto &I : *B) {
         if (!can_instrument_instruction(F, &I, skipInstructionPred, skipped_instructions)) {
+            if (local_hash_value && hash_branches) {
+                if (auto* branchInst = llvm::dyn_cast<llvm::BranchInst>(&I)) {
+                    if (instrumentBranchInst(branchInst, local_hash_value, true)) {
+                        modified = true;
+                        local_hash_updated = true;
+                        skipped_instructions.insert(B->getInstList().getPrevNode(I));
+                    } else {
+                        stats.addNonHashableInstruction(&I);
+                    }
+                }
+            }
             continue;
         }
         unsigned index = get_random(num_hash);
