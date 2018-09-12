@@ -2212,6 +2212,9 @@ bool ObliviousHashInsertionPass::can_instrument_instruction(llvm::Function* F,
     if (skipInstruction(*I) || skipInstructionPred(I)) {
         return false;
     }
+    if (isNullReachable(F, I)) {
+        return false;
+    }
     if (llvm::dyn_cast<llvm::PHINode>(I)) {
         dataDepInstrs.insert(I);
         stats.addUnprotectedInstruction(I);
@@ -2329,6 +2332,28 @@ bool ObliviousHashInsertionPass::isUsingGlobal(llvm::Value* value,
     for (auto op = user->op_begin(); op != user->op_end(); ++op) {
         if (isUsingGlobal(llvm::dyn_cast<llvm::Value>(&*op), global_reachable_instr)) {
             return true;
+        }
+    }
+    return false;
+}
+
+bool ObliviousHashInsertionPass::isNullReachable(llvm::Function* F, llvm::Value* value)
+{
+    dg::LLVMDependenceGraph* F_dg = m_slicer->getDG(F);
+    if (!F_dg) {
+        llvm::dbgs() << "No dependence graph for function " << F->getName()
+                     << "Can not identify if is null reachable\n";
+        return true;
+    }
+
+    auto node = F_dg->getNode(value);
+    //TODO: this logic does not handle recursive reachability
+    for (auto it = node->rev_data_begin(); it != node->rev_data_end(); ++it) {
+        auto* value = (*it)->getValue();
+        if (auto* storeInst = llvm::dyn_cast<llvm::StoreInst>(value)) {
+            if (llvm::dyn_cast<llvm::ConstantPointerNull>(storeInst->getValueOperand())) {
+                return true;
+            }
         }
     }
     return false;

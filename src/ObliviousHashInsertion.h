@@ -120,6 +120,7 @@ private:
                      InstructionSet& skipped_instructions);
   bool isUsingGlobal(llvm::Value* value,
                      const std::unordered_set<llvm::Instruction*>& global_reachable_instr);
+  bool isNullReachable(llvm::Function* F, llvm::Value* value);
   llvm::Loop* get_path_loop(llvm::Function* F,
                             const FunctionOHPaths::OHPath& path);
   bool can_protect_loop_path(llvm::Function* F,
