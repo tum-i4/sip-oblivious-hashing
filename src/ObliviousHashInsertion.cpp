@@ -1985,11 +1985,6 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
                                                 stats.addUnprotectedGlobalReachableInstruction(instr);
                                                 return true;
                                             }
-                                            if (F_input_dependency_info->isArgumentDependent(instr)) {
-                                                skipped_instructions.insert(instr);
-                                                stats.addUnprotectedArgumentReachableInstruction(instr);
-                                                return true;
-                                            }
                                             if (isUsingGlobal(instr, global_reachable_instr)) {
                                                 skipped_instructions.insert(instr);
                                                 global_reachable_instr.insert(instr);
