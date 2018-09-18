@@ -1,4 +1,5 @@
-from pwn import *
+import struct
+import os
 import sys, subprocess
 import argparse
 import mmap
