@@ -1,3 +1,5 @@
+set exec-wrapper env LD_PRELOAD="/home/sip/sip-oblivious-hashing/assertions/librtlib.so"
+set breakpoint pending o
 b response
 commands
 return
