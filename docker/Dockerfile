@@ -13,7 +13,7 @@ RUN echo "deb-src http://apt.llvm.org/xenial/ llvm-toolchain-xenial main"  >> /e
 RUN apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 15CF4D18AF4F7421
 #RUN echo "wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key|apt-key add -"
 # Fingerprint: 6084 F3CF 814B 57C1 CF12 EFD5 15CF 4D18 AF4F 7421"
-RUN apt-get update && apt-get install -y pkg-config libllvm6.0 llvm-6.0 llvm-6.0-dev llvm-6.0-doc llvm-6.0-examples llvm-6.0-runtime clang-6.0 clang-tools-6.0 clang-6.0-doc libclang-common-6.0-dev libclang-6.0-dev libclang1-6.0 clang-format-6.0 python-clang-6.0
+RUN apt-get update && apt-get install -y pkg-config libllvm6.0 llvm-6.0 llvm-6.0-dev llvm-6.0-doc llvm-6.0-examples llvm-6.0-runtime clang-6.0 clang-tools-6.0 clang-6.0-doc libclang-common-6.0-dev libclang-6.0-dev libclang1-6.0 clang-format-6.0 python-clang-6.0 libc6-dbg gdb
 
 # Add a non-root user
 RUN useradd --create-home --shell /bin/bash sip && adduser sip sudo
@@ -74,3 +74,4 @@ RUN git clone --depth 1 -b acsac https://github.com/mr-ma/sip-eval.git eval && \
 # Switch to user
 RUN chown -R sip:sip .
 USER sip
+
