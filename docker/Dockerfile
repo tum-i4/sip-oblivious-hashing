@@ -24,7 +24,7 @@ WORKDIR /home/sip
 
 # Pull git repos
 ####dg
-RUN git clone https://github.com/tum-i22/dg.git && \
+RUN git clone -b acsac https://github.com/tum-i22/dg.git && \
     mkdir -p /home/sip/dg/build && \
     cmake -H/home/sip/dg -B/home/sip/dg/build && \
     make -C /home/sip/dg/build -j 2 install
