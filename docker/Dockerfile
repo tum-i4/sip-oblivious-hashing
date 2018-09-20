@@ -2,12 +2,12 @@ FROM ubuntu:16.04
 
 # Install some dependencies
 RUN apt-get update && apt-get install -y build-essential cmake git sudo wget libboost-dev python-pip python-tk libncurses5-dev libncursesw5-dev 
-RUN pip install --upgrade pip && \ 
-    pip install tabulate && \
-    pip install numpy && \
-    pip install r2pipe && \
-    pip install benchexec && \
-    python -mpip install matplotlib
+RUN pip install --upgrade pip  
+RUN pip install tabulate 
+RUN pip install numpy
+RUN pip install r2pipe 
+RUN pip install benchexec 
+RUN python -mpip install matplotlib
 
 # Install llvm 6.0 (based on http://apt.llvm.org/)
 RUN echo "deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial main" >> /etc/apt/sources.list
