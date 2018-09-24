@@ -1604,6 +1604,9 @@ void ObliviousHashInsertionPass::extract_path_functions()
                                                        stats);
             functionExtractor.extractFunction();
             path.extracted_path_function = functionExtractor.getExtractedFunction();
+            if (path.extracted_path_function) {
+                stats.addNumberOfTotalShortRangeAssertCalls(1);
+            }
         }
     }
 }
@@ -2071,6 +2074,9 @@ bool ObliviousHashInsertionPass::process_path(llvm::Function* F,
         local_hash->eraseFromParent();
         llvm::dbgs() << "No short range oh has been applied in the path\n";
         m_function_oh_paths[F].pop_back();
+        if (oh_path.path_assert) {
+            stats.addNumberOfShortRangeAssertCalls(-1);
+        }
         return modified;
     }
     // means no short range assertion has been added for the path

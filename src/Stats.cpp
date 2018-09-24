@@ -461,6 +461,12 @@ void OHStats::addNumberOfShortRangeHashCalls(int value)
 void OHStats::addNumberOfShortRangeAssertCalls(int value)
 {
 	numberOfShortRangeAssertCalls += value;
+    addNumberOfTotalShortRangeAssertCalls(value);
+}
+
+void OHStats::addNumberOfTotalShortRangeAssertCalls(int value)
+{
+    numberOfTotalShortRangeAssertCalls += value;
 }
 
 void OHStats::addNumberOfShortRangeProtectedGuardInstructions(int value)
@@ -575,6 +581,7 @@ void OHStats::dumpJson(std::string filePath){
 	j["numberOfShortRangeProtectedArguments"] = numberOfShortRangeProtectedArguments;
 	//j["numberOfShortRangeHashCalls"] = numberOfShortRangeHashCalls;
 	j["numberOfShortRangeAssertCalls"] = numberOfShortRangeAssertCalls;
+	j["numberOfTotalShortRangeAssertCalls"] = numberOfTotalShortRangeAssertCalls;
 	j["numberOfShortRangeProtectedGuardInstructions"] = numberOfShortRangeProtectedGuardInstructions;
 	j["numberOfShortRangeProtectedGuardArguments"] = numberOfShortRangeProtectedGuardArguments;
 

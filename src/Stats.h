@@ -28,6 +28,7 @@ private:
     int numberOfShortRangeProtectedArguments=0;
     int numberOfShortRangeHashCalls =0;
     int numberOfShortRangeAssertCalls = 0;
+    int numberOfTotalShortRangeAssertCalls = 0;
     int numberOfShortRangeProtectedGuardInstructions = 0;
     int numberOfShortRangeProtectedGuardArguments = 0;
 
@@ -130,6 +131,7 @@ public:
     void addNumberOfShortRangeProtectedArguments(int);
     void addNumberOfShortRangeHashCalls(int);
     void addNumberOfShortRangeAssertCalls(int);
+    void addNumberOfTotalShortRangeAssertCalls(int);
     void addNumberOfShortRangeProtectedGuardInstructions(int);
     void addNumberOfShortRangeProtectedGuardArguments(int);
 
