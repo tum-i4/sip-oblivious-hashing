@@ -16,6 +16,7 @@
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Metadata.h"
+#include "llvm/IR/IntrinsicInst.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/IR/Metadata.h"
@@ -144,6 +145,10 @@ bool shouldSkipInstruction(llvm::Instruction* instr,
         if (skipped_instructions.find(op_instr) != skipped_instructions.end()) {
             if (auto* storeInst = llvm::dyn_cast<llvm::StoreInst>(instr)) {
                 if (op_instr == storeInst->getPointerOperand()) {
+                    continue;
+                }
+            } else if (auto* memIntrinsic = llvm::dyn_cast<llvm::MemIntrinsic>(instr)) {
+                if (op_instr == memIntrinsic->getRawDest()) {
                     continue;
                 }
             }
@@ -514,8 +519,15 @@ void FunctionExtractionHelper::clonePathInstructions()
         auto& instructions = clonedB->getInstList();
         for (auto& I : *path_B) {
             if (m_path.path_skipped_instructions.find(&I) != m_path.path_skipped_instructions.end()
-                && !llvm::dyn_cast<llvm::AllocaInst>(&I)) {
+                && !llvm::dyn_cast<llvm::AllocaInst>(&I)
+                && !llvm::dyn_cast<llvm::BitCastInst>(&I)) {
                 continue;
+            }
+            if (auto* bitCast = llvm::dyn_cast<llvm::BitCastInst>(&I)) {
+                if (m_argReachableInstrs.find(bitCast) != m_argReachableInstrs.end()
+                        || m_globalReachableInstrs.find(bitCast) != m_globalReachableInstrs.end()
+                        || m_inputDepRes->isGlobalDependent(bitCast))
+                    continue;
             }
             auto* callInst = llvm::dyn_cast<llvm::CallInst>(&I);
             if (isGlobalHashCall(callInst)
@@ -896,16 +908,22 @@ bool FunctionExtractionHelper::areCallArgumentsDataIndep(llvm::CallInst* callIns
     if (!callInst) {
         return true;
     }
+    auto* memIntrinsic = llvm::dyn_cast<llvm::MemIntrinsic>(callInst);
     for (int i = 0; i < callInst->getNumArgOperands(); ++i) {
         auto* operand = callInst->getArgOperand(i);
         auto* inst = llvm::dyn_cast<llvm::Instruction>(operand);
         if (!inst) {
             continue;
         }
-        if (m_inputDepRes->isDataDependent(inst)
-                || m_argReachableInstrs.find(inst) != m_argReachableInstrs.end()
+        if (m_argReachableInstrs.find(inst) != m_argReachableInstrs.end()
                 || m_globalReachableInstrs.find(inst) != m_globalReachableInstrs.end()
                 || m_inputDepRes->isGlobalDependent(inst)) {
+            return false;
+        }
+        if (m_inputDepRes->isDataDependent(inst)) {
+            if (memIntrinsic && inst == memIntrinsic->getRawDest()) {
+                continue;
+            }
             return false;
         }
     }
@@ -1070,6 +1088,9 @@ bool ObliviousHashInsertionPass::insertHash(llvm::Instruction &I,
     /*if (v->getType()->isPointerTy()) {
       return;
       }*/
+    if (!isHashableValue(v)) {
+        return false;
+    }
     llvm::LLVMContext &Ctx = I.getModule()->getContext();
     llvm::IRBuilder<> builder(&I);
     if (before) {
@@ -1078,9 +1099,6 @@ bool ObliviousHashInsertionPass::insertHash(llvm::Instruction &I,
         builder.SetInsertPoint(I.getParent(), ++builder.GetInsertPoint());
     }
     llvm::Function* hashFunc = get_random(2) ? hashFunc1 : hashFunc2;
-    if (!isHashableValue(v)) {
-        return false;
-    }
     insertHashBuilder(builder, v, hash_value, hashFunc);
     return true;
 }
@@ -1235,8 +1253,10 @@ bool ObliviousHashInsertionPass::instrumentCallInst(CallInstTy* call,
             called_function == hashFunc1 || called_function == hashFunc2) {
         return false;
     }
+    auto* memIntrinsic = llvm::dyn_cast<llvm::MemIntrinsic>(call);
     auto calledF_input_dependency_info = m_input_dependency_info->getAnalysisInfo(called_function);
-    if (calledF_input_dependency_info && calledF_input_dependency_info->isExtractedFunction()) {
+    if (calledF_input_dependency_info && calledF_input_dependency_info->isExtractedFunction()
+            && !memIntrinsic) {
         m_function_skipped_instructions[call->getParent()->getParent()].insert(call);
         return false;
     }
@@ -1272,15 +1292,20 @@ bool ObliviousHashInsertionPass::instrumentCallInst(CallInstTy* call,
             llvm::dbgs() << "Can't handle this operand " << *operand
                          << " of the call " << *call << "\n";
         }
-        auto* operand_inst = llvm::dyn_cast<llvm::Instruction>(operand);
-        if (operand_inst && m_input_dependency_info->isDataDependent(operand_inst)) {
-            m_function_skipped_instructions[call->getParent()->getParent()].insert(call);
-        }
         hashInserted = hashInserted || argHashed;
+        auto* operand_inst = llvm::dyn_cast<llvm::Instruction>(operand);
+        if (operand_inst) {
+            if (memIntrinsic && operand_inst == memIntrinsic->getRawDest()) {
+                continue;
+            }
+            if (m_input_dependency_info->isDataDependent(operand_inst)) {
+                m_function_skipped_instructions[call->getParent()->getParent()].insert(call);
+            }
+        }
     }
 
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(call->getParent()->getParent());
-    if (!F_input_dependency_info->isDataDependent(call)) {
+    if (!F_input_dependency_info->isDataDependent(call) && !memIntrinsic) {
         m_function_skipped_instructions[call->getParent()->getParent()].insert(call);
     } else if (!isHashableFunction(called_function)) {
        m_function_skipped_instructions[call->getParent()->getParent()].insert(call);
