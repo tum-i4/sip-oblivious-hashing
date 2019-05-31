@@ -30,6 +30,10 @@ class Loop;
 class MDNode;
 }
 
+namespace pdg {
+class PDG;
+}
+
 namespace oh {
 
 class FunctionCallSiteData;
@@ -189,7 +193,7 @@ private:
   FunctionInformation* m_function_mark_info;
   FunctionInformation* m_function_filter_info;
   const FunctionCallSiteData* m_function_callsite_data;
-  std::unique_ptr<Slicer> m_slicer;
+  pdg::PDG* m_pdg;
 
   bool m_hashUpdated;
   bool hasTagsToSkip;

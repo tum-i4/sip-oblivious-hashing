@@ -15,14 +15,14 @@ if [ $# -eq 0 ]
 fi
 
 UTILS_PATH=/home/sip/self-checksumming/build/lib/libUtils.so
-INPUT_DEP_PATH=/usr/local/lib/
+LIB_PATH=/usr/local/lib/
 OH_PATH=/home/sip/sip-oblivious-hashing
 OH_LIB=$OH_PATH/build/lib
 bitcode=$1
 input=$2
 
 # Running hash insertion pass
-    opt-6.0 -load $INPUT_DEP_PATH/libInputDependency.so -load /usr/local/lib/libLLVMdg.so -load $UTILS_PATH -load $OH_LIB/liboblivious-hashing.so -load $INPUT_DEP_PATH/libTransforms.so $bitcode -strip-debug -unreachableblockelim -globaldce -goto-unsafe -dependency-stats -dependency-stats-file='dependency.stats' -lib-config=/home/sip/input-dependency-analyzer/library_configs/tetris_library_config.json  -oh-insert -short-range-oh -protect-data-dep-loops -num-hash 1 -skip 'hash' -dump-oh-stat="oh.stats" -o out.bc
+    opt-6.0 -load $LIB_PATH/libInputDependency.so -load $LIB_PATH/Svf.so  -load $LIB_PATH/libpdg.so -load $UTILS_PATH -load $OH_LIB/liboblivious-hashing.so -load $INPUT_DEP_PATH/libTransforms.so $bitcode -strip-debug -unreachableblockelim -globaldce -goto-unsafe -dependency-stats -dependency-stats-file='dependency.stats' -lib-config=/home/sip/input-dependency-analyzer/library_configs/tetris_library_config.json  -oh-insert -short-range-oh -protect-data-dep-loops -num-hash 1 -skip 'hash' -dump-oh-stat="oh.stats" -o out.bc
 
 if [ $? -eq 0 ]; then
             echo 'OK Transform'

@@ -2,6 +2,12 @@
 #include "FunctionCallSitesInformation.h"
 #include "Utils.h"
 
+#include "PDG/Passes/PDGBuildPasses.h"
+#include "PDG/PDG/PDG.h"
+#include "PDG/PDG/PDGNode.h"
+#include "PDG/PDG/PDGEdge.h"
+#include "PDG/PDG/FunctionPDG.h"
+
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/AssumptionCache.h"
@@ -226,7 +232,7 @@ bool is_loop_special_block(llvm::Loop* loop, llvm::BasicBlock* block)
     return false;
 }
 
-bool is_loop_invariant(const dg::LLVMNode* node,
+bool is_loop_invariant(const pdg::PDGNode* node,
                        llvm::Loop* loop,
                        const FunctionOHPaths::OHPath& path,
                        const std::unordered_set<llvm::Instruction*>& invariants,
@@ -235,11 +241,21 @@ bool is_loop_invariant(const dg::LLVMNode* node,
     if (!node) {
         return true;
     }
+    auto* llvmInstrNode = llvm::dyn_cast<pdg::PDGLLVMNode>(node);
+    if (!llvmInstrNode) {
+        return true;
+    }
     bool is_invariant = true;
     unsigned store_num = 0;
-    processed_values.insert(node->getValue());
-    for (auto it = node->rev_data_begin(); it != node->rev_data_end(); ++it) {
-        auto* value = (*it)->getValue();
+    processed_values.insert(llvmInstrNode->getNodeValue());
+    for (auto it = llvmInstrNode->inEdgesBegin();
+            it != llvmInstrNode->inEdgesEnd();
+            ++it) {
+        auto* sourceNode = llvm::dyn_cast<pdg::PDGLLVMNode>((*it)->getSource().get());
+        if (!sourceNode) {
+            continue;
+        }
+        auto* value = sourceNode->getNodeValue();
         if (!value) {
             continue;
         }
@@ -265,7 +281,7 @@ bool is_loop_invariant(const dg::LLVMNode* node,
         if (loop->contains(block) && !FunctionOHPaths::pathContainsBlock(path, block)) {
             return false;
         }
-        is_invariant &= is_loop_invariant(*it, loop, path, invariants, processed_values);
+        is_invariant &= is_loop_invariant(sourceNode, loop, path, invariants, processed_values);
     }
     return is_invariant;
 }
@@ -1002,6 +1018,7 @@ void ObliviousHashInsertionPass::getAnalysisUsage(llvm::AnalysisUsage &AU) const
     AU.addRequired<FunctionCallSiteInformationPass>();
     AU.addRequired<FunctionMarkerPass>();
     AU.addRequired<FunctionFilterPass>();
+    AU.addRequired<pdg::SVFGPDGBuilder>();
 }
 
 std::map<Function *, int> checkeeMap;
@@ -1462,17 +1479,6 @@ bool ObliviousHashInsertionPass::skip_function(llvm::Function& F, bool update_st
             stats.addFunctionWithNoInputDep(&F);
         }
         return true;
-    }
-    if (shortRangeOH) {
-        dg::LLVMDependenceGraph* F_dg = m_slicer->getDG(&F);
-        if (!F_dg) {
-            llvm::dbgs() << "Skip. No dependence graph for function " << F.getName() << "\n";
-            if (update_stats) {
-                stats.addFunctionWithNoDg(&F);
-                update_statistics_with_non_dg_function(&F);
-            }
-            return true;
-        }
     }
     return F_input_dependency_info->isExtractedFunction();
 }
@@ -2115,8 +2121,8 @@ ObliviousHashInsertionPass::collect_loop_invariants(llvm::Function* F,
                                                     const FunctionOHPaths::OHPath& path)
 {
     InstructionSet invariants;
-    dg::LLVMDependenceGraph* F_dg = m_slicer->getDG(F);
-    if (!F_dg) {
+    auto Fpdg = m_pdg->getFunctionPDG(F);
+    if (!Fpdg) {
         llvm::dbgs() << "No dependence graph for function " << F->getName()
                      << "Can not identify loop invariants\n";
         return invariants;
@@ -2133,9 +2139,12 @@ ObliviousHashInsertionPass::collect_loop_invariants(llvm::Function* F,
                 continue;
             }
             
-            auto I_node = F_dg->getNode(&I);
+            if (!Fpdg->hasNode(&I)) {
+                continue;
+            }
+            auto I_node = Fpdg->getNode(&I);
             std::unordered_set<llvm::Value*> processed_values;
-            if (is_loop_invariant(I_node, loop, path, invariants, processed_values)) {
+            if (is_loop_invariant(I_node.get(), loop, path, invariants, processed_values)) {
                 invariants.insert(&I);
                 block_invariants.first->second.insert(&I);
             }
@@ -2451,8 +2460,8 @@ ObliviousHashInsertionPass::get_global_reachable_instructions(llvm::Function* F)
 void ObliviousHashInsertionPass::collect_argument_reachable_instructions(llvm::Function* F)
 {
     InstructionSet instructions;
-    dg::LLVMDependenceGraph* F_dg = m_slicer->getDG(F);
-    if (!F_dg) {
+    auto Fpdg = m_pdg->getFunctionPDG(F);
+    if (!Fpdg) {
         llvm::dbgs() << "No dependence graph for function " << F->getName() << "\n";
         m_argument_reachable_instructions.insert(std::make_pair(F, instructions));
         return;
@@ -2461,14 +2470,14 @@ void ObliviousHashInsertionPass::collect_argument_reachable_instructions(llvm::F
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
     auto arg_it = F->arg_begin();
     while (arg_it != F->arg_end()) {
-        std::list<dg::LLVMNode*> dg_nodes;
-        auto arg_node = F_dg->getNode(&*arg_it);
+        std::list<pdg::PDGLLVMNode*> dg_nodes;
+        auto arg_node = Fpdg->getFormalArgNode(&*arg_it);
         if (arg_node == nullptr) {
             ++arg_it;
             continue;
         }
-        dg_nodes.push_back(arg_node);
-        std::unordered_set<dg::LLVMNode*> processed_nodes;
+        dg_nodes.push_back(llvm::dyn_cast<pdg::PDGLLVMNode>(arg_node.get()));
+        std::unordered_set<pdg::PDGLLVMNode*> processed_nodes;
         while (!dg_nodes.empty()) {
             auto node = dg_nodes.back();
             dg_nodes.pop_back();
@@ -2476,13 +2485,17 @@ void ObliviousHashInsertionPass::collect_argument_reachable_instructions(llvm::F
                 continue;
             }
             //llvm::dbgs() << "dg node: " << *node->getValue() << "\n";
-            auto* inst = llvm::dyn_cast<llvm::Instruction>(node->getValue());
+            auto* inst = llvm::dyn_cast<llvm::Instruction>(node->getNodeValue());
             if (inst && inst->getParent()->getParent() != F) {
                 continue;
             }
-            auto dep_it = node->data_begin();
-            while (dep_it != node->data_end()) {
-                dg_nodes.push_back(*dep_it);
+            auto dep_it = node->outEdgesBegin();
+            while (dep_it != node->outEdgesEnd()) {
+                auto* destNode = llvm::dyn_cast<pdg::PDGLLVMNode>((*dep_it)->getSource().get());
+                if (!destNode) {
+                    continue;
+                }
+                dg_nodes.push_back(destNode);
                 ++dep_it;
             }
             if (!inst) {
@@ -2498,8 +2511,8 @@ void ObliviousHashInsertionPass::collect_argument_reachable_instructions(llvm::F
 void ObliviousHashInsertionPass::collect_global_reachable_instructions(llvm::Function* F)
 {
     InstructionSet instructions;
-    dg::LLVMDependenceGraph* F_dg = m_slicer->getDG(F);
-    if (!F_dg) {
+    auto Fpdg = m_pdg->getFunctionPDG(F);
+    if (!Fpdg) {
         m_global_reachable_instructions.insert(std::make_pair(F, instructions));
         return;
     }
@@ -2507,14 +2520,18 @@ void ObliviousHashInsertionPass::collect_global_reachable_instructions(llvm::Fun
     auto F_input_dependency_info = m_input_dependency_info->getAnalysisInfo(F);
     auto global_it = m_M->global_begin();
     while (global_it != m_M->global_end()) {
-        std::list<dg::LLVMNode*> dg_nodes;
-        auto global_node = F_dg->getNode(&*global_it);
+        std::list<pdg::PDGLLVMNode*> dg_nodes;
+        if (!m_pdg->hasGlobalVariableNode(&*global_it)) {
+            ++global_it;
+            continue;
+        }
+        auto global_node = m_pdg->getGlobalVariableNode(&*global_it);
         if (global_node == nullptr) {
             ++global_it;
             continue;
         }
-        dg_nodes.push_back(global_node);
-        std::unordered_set<dg::LLVMNode*> processed_nodes;
+        dg_nodes.push_back(llvm::dyn_cast<pdg::PDGLLVMNode>(global_node.get()));
+        std::unordered_set<pdg::PDGLLVMNode*> processed_nodes;
         while (!dg_nodes.empty()) {
             auto node = dg_nodes.back();
             dg_nodes.pop_back();
@@ -2522,13 +2539,18 @@ void ObliviousHashInsertionPass::collect_global_reachable_instructions(llvm::Fun
                 continue;
             }
             //llvm::dbgs() << "dg node: " << *node->getValue() << "\n";
-            auto* inst = llvm::dyn_cast<llvm::Instruction>(node->getValue());
+            auto* inst = llvm::dyn_cast<llvm::Instruction>(node->getNodeValue());
+
             if (inst && inst->getParent()->getParent() != F) {
                 continue;
             }
-            auto dep_it = node->data_begin();
-            while (dep_it != node->data_end()) {
-                dg_nodes.push_back(*dep_it);
+            auto dep_it = node->outEdgesBegin();
+            while (dep_it != node->outEdgesEnd()) {
+                auto* destNode = llvm::dyn_cast<pdg::PDGLLVMNode>((*dep_it)->getSource().get());
+                if (!destNode) {
+                    continue;
+                }
+                dg_nodes.push_back(destNode);
                 ++dep_it;
             }
             if (!inst || inst->getParent()->getParent() != F) {
@@ -2591,9 +2613,6 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
     bool modified = false;
     srand(time(NULL));
     m_M = &M;
-    if (shortRangeOH) {
-        m_slicer.reset(new Slicer(m_M));
-    }
 
     parse_skip_tags();
     setup_guardMe_metadata();
@@ -2606,6 +2625,7 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
 
     llvm::Optional<llvm::BasicAAResult> BAR;
     llvm::Optional<llvm::AAResults> AAR;
+    m_pdg = getAnalysis<pdg::SVFGPDGBuilder>().getPDG().get();
     auto AARGetter = [&](llvm::Function* F) -> llvm::AAResults* {
         BAR.emplace(llvm::createLegacyPMBasicAAResult(*this, *F));
         AAR.emplace(llvm::createLegacyPMAAResults(*this, *F, *BAR));
@@ -2643,6 +2663,36 @@ bool ObliviousHashInsertionPass::runOnModule(llvm::Module& M)
         extract_path_functions();
         insert_calls_for_path_functions();
     }
+//    for (const auto& B : *F_processed) {
+//        for (const auto& I : B) {
+//            if (auto* bin_instr = llvm::dyn_cast<llvm::BinaryOperator>(&I)) {
+//                if (bin_instr->getOpcode() == llvm::Instruction::Add) {
+//                    llvm::dbgs() << I << "\n";
+//                    llvm::dbgs() << "   First op type: " << *bin_instr->getOperand(0)->getType() << "\n";
+//                    llvm::dbgs() << "   Second op type: " << *bin_instr->getOperand(1)->getType() << "\n";
+//                }
+//            }
+//        }
+//    }
+//    for (auto& path : m_function_oh_paths[F_processed]) {
+//        llvm::dbgs() << "Path Function: " << path.extracted_path_function->getName() << "\n";
+//        for (const auto& b : path.path) {
+//            llvm::dbgs() << b->getName() << "   ";
+//        }
+//        llvm::dbgs() << "\n";
+        //for (const auto& B : *path.extracted_path_function) {
+        //    for (const auto& I : B) {
+        //        if (auto* bin_instr = llvm::dyn_cast<llvm::BinaryOperator>(&I)) {
+        //            if (bin_instr->getOpcode() == llvm::Instruction::Add) {
+        //                llvm::dbgs() << "   Instr: " << I << "\n";
+        //                llvm::dbgs() << "       First op type: " << *bin_instr->getOperand(0)->getType() << "\n";
+        //                llvm::dbgs() << "       Second op type: " << *bin_instr->getOperand(1)->getType() << "\n";
+        //            }
+        //        }
+        //    }
+        //}
+    //}
+    //M.dump();
 
     //if (!checkTerminators(M)) {
     //    exit(1);
