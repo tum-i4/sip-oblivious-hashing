@@ -1,11 +1,10 @@
 #pragma once
 
 #include "llvm/IR/Module.h"
-#include "dg/llvm/LLVMDependenceGraph.h"
-#include "dg/analysis/Slicing.h"
-#include "dg/llvm/analysis/PointsTo/PointerAnalysis.h"
-#include "dg/llvm/LLVMSlicer.h"
-#include "dg/llvm/analysis/ReachingDefinitions/ReachingDefinitions.h"
+#include "llvm-dg/llvm/LLVMDependenceGraph.h"
+#include "llvm-dg/llvm/Slicer.h"
+#include "llvm-dg/llvm/analysis/PointsTo/PointsTo.h"
+#include "llvm-dg/llvm/analysis/ReachingDefinitions/ReachingDefinitions.h"
 
 #include <memory>
 #include <vector>
@@ -58,6 +57,8 @@ private:
 private:
     unsigned m_slice_id;
     llvm::Module *m_module;
+    std::unique_ptr<dg::LLVMPointerAnalysis> m_PTA;
+    std::unique_ptr<dg::analysis::rd::LLVMReachingDefinitions> m_RD;
     std::unique_ptr<dg::LLVMDependenceGraph> m_dg;
     dg::LLVMSlicer m_slicer;
     Slice m_slice;

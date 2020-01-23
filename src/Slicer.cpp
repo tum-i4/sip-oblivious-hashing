@@ -10,9 +10,12 @@
 #include "llvm/Support/raw_ostream.h"
 
 // dg includes
-#include "dg/analysis/PointsTo/Pointer.h"
-#include "dg/llvm/LLVMDependenceGraphBuilder.h"
-#include "dg/llvm/LLVMDependenceGraph.h"
+#include "llvm-dg/llvm/analysis/DefUse.h"
+#include "llvm-dg/analysis/PointsTo/PointsToFlowInsensitive.h"
+#include "llvm-dg/analysis/PointsTo/PointsToFlowSensitive.h"
+#include "llvm-dg/analysis/PointsTo/PointsToWithInvalidate.h"
+#include "llvm-dg/analysis/PointsTo/Pointer.h"
+#include "llvm-dg/llvm/analysis/PointsTo/PointsTo.h"
 
 #include <map>
 
@@ -21,18 +24,12 @@ namespace oh {
 Slicer::Slicer(llvm::Module* M)
     : m_slice_id(0)
     , m_module(M)
+    , m_PTA(new dg::LLVMPointerAnalysis(m_module))
+    , m_RD(new dg::analysis::rd::LLVMReachingDefinitions(m_module, m_PTA.get()))
     , m_dg(new dg::LLVMDependenceGraph())
 {
-    dg::llvmdg::LLVMDependenceGraphOptions options;
-    options.PTAOptions.analysisType = dg::LLVMPointerAnalysisOptions::AnalysisType::fi;
-    options.RDAOptions.analysisType = dg::analysis::LLVMReachingDefinitionsAnalysisOptions::AnalysisType::dense;
-
-    dg::llvmdg::LLVMDependenceGraphBuilder builder(M, options);
-    m_dg = std::move(builder.constructCFGOnly());
-    m_dg = builder.computeDependencies(std::move(m_dg));
-
-    //buildDG();
-    //computeEdges();
+    buildDG();
+    computeEdges();
 }
 
 dg::LLVMDependenceGraph* Slicer::getDG(llvm::Function* F)
@@ -65,21 +62,21 @@ bool Slicer::slice(llvm::Function* F, const std::string& criteria)
     return true;
 }
 
-//void Slicer::computeEdges()
-//{
-//    m_RD->run<dg::analysis::rd::ReachingDefinitionsAnalysis>();
-//
-//    dg::LLVMDefUseAnalysis DUA(m_dg.get(), m_RD.get(),
-//                               m_PTA.get(), false);
-//    DUA.run(); // add def-use edges according that
-//    m_dg->computeControlDependencies(dg::CD_ALG::CLASSIC);
-//}
+void Slicer::computeEdges()
+{
+    m_RD->run<dg::analysis::rd::ReachingDefinitionsAnalysis>();
 
-//void Slicer::buildDG()
-//{
-//    m_PTA->run<dg::analysis::pta::PointerAnalysisFI>();
-//    m_dg->build(m_module, m_PTA.get());
-//}
+    dg::LLVMDefUseAnalysis DUA(m_dg.get(), m_RD.get(),
+                               m_PTA.get(), false);
+    DUA.run(); // add def-use edges according that
+    m_dg->computeControlDependencies(dg::CD_ALG::CLASSIC);
+}
+
+void Slicer::buildDG()
+{
+    m_PTA->run<dg::analysis::pta::PointsToFlowInsensitive>();
+    m_dg->build(m_module, m_PTA.get());
+}
 
 void Slicer::computeSlice(llvm::Function* F)
 {

@@ -46,9 +46,7 @@ RUN git clone --depth 1 -b acsac https://github.com/tum-i22/self-checksumming.gi
     make -C /home/sip/self-checksumming/build && \
     make -C /home/sip/self-checksumming/hook
 ####oblivious hashing
-RUN git clone -b acsac https://github.com/tum-i22/sip-oblivious-hashing.git && \
-    cd /home/sip/sip-oblivious-hashing && \
-    git checkout 824e4fc04933f3ecdc40be4ae611188768063a1f && \
+RUN git clone --depth 1 -b acsac https://github.com/tum-i22/sip-oblivious-hashing.git && \
     mkdir -p /home/sip/sip-oblivious-hashing/build && \
     cmake -H/home/sip/sip-oblivious-hashing -B/home/sip/sip-oblivious-hashing/build && \
     make -C /home/sip/sip-oblivious-hashing/build
@@ -57,10 +55,23 @@ RUN git clone --depth 1 -b acsac https://github.com/mr-ma/sip-eval.git eval && \
     mkdir -p /home/sip/eval/passes/build && \
     cmake -H/home/sip/eval/passes -B/home/sip/eval/passes/build && \
     make -C /home/sip/eval/passes/build
+#RUN git clone --depth 1 -b acsac https://github.com/mr-ma/input-dependency-analyzer.git
+#WORKDIR /home/sip/input-dependency-analyzer
+
+#RUN git clone --depth 1 -b acsac https://github.com/tum-i22/sip-oblivious-hashing.git
+#WORKDIR /home/sip/sip-oblivious-hashing
+#WORKDIR /home/sip/sip-oblivious-hashing/input-dependency-analyzer
+#RUN mkdir -p /home/sip/sip-oblivious-hashing/input-dependency-analyzer/build
+#RUN cmake -H/home/sip/sip-oblivious-hashing/input-dependency-analyzer -B/home/sip/sip-oblivious-hashing/input-dependency-analyzer/build && \
+#RUN make -C /home/sip/sip-oblivious-hashing/input-dependency-analyzer/build -j 2 install
+#RUN make
 
 
 
-
+# Copy pass files
+#COPY files/home/ /home/sip/
+#COPY files/include/ /usr/local/include/
+#COPY files/lib/ /usr/local/lib/
 
 # Switch to user
 RUN chown -R sip:sip .
